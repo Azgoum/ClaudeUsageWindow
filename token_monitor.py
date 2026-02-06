@@ -4,10 +4,12 @@ Fetches data from claude.ai/settings/usage via Firefox cookies
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
+import base64
 import json
 import math
 import os
 import subprocess
+import sys
 import threading
 import re
 from datetime import datetime, timedelta
@@ -23,6 +25,49 @@ try:
 except ImportError:
     HAS_BROWSER_COOKIES = False
 
+# Claude logo (icons8-claude-48.png) embedded as base64
+CLAUDE_LOGO_B64 = (
+    "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"
+    "AABJRU5ErkJggg=="
+)
+
 
 class TokenMonitor:
     def __init__(self):
@@ -36,8 +81,20 @@ class TokenMonitor:
         self.root.resizable(False, False)
         self.root.configure(bg='#1a1a2e')
 
-        # State
-        self.state_file = Path(__file__).parent / "state.json"
+        # Set window icon
+        try:
+            icon_data = base64.b64decode(CLAUDE_LOGO_B64)
+            self.icon_image = tk.PhotoImage(data=icon_data)
+            self.root.iconphoto(True, self.icon_image)
+        except Exception:
+            pass
+
+        # State - handle both .exe and .py paths
+        if getattr(sys, 'frozen', False):
+            base_dir = Path(sys.executable).parent
+        else:
+            base_dir = Path(__file__).parent
+        self.state_file = base_dir / "state.json"
         self.org_uuid = None
         self.whatsapp_number = '+33XXXXXXXXX'
         self.load_state()
@@ -51,6 +108,9 @@ class TokenMonitor:
         # Notification tracking
         self.session_notified = False
         self.last_session_reset = None
+
+        # Animation state
+        self._animating = False
 
         self.setup_ui()
         self.setup_drag()
@@ -84,53 +144,62 @@ class TokenMonitor:
         except Exception as e:
             print(f"Error saving state: {e}")
 
-    def _draw_claude_logo(self, parent, bg_color):
-        """Draw the Claude logo (sunburst) on a canvas"""
-        size = 24
-        canvas = tk.Canvas(parent, width=size, height=size, bg=bg_color, highlightthickness=0)
-        color = '#D97757'
-        cx, cy = size / 2, size / 2
+    def _draw_refresh_arrow(self, angle_offset=0, color='#ffffff'):
+        """Draw a circular refresh arrow on the canvas, rotated by angle_offset degrees"""
+        self.refresh_canvas.delete('all')
+        s = 26
+        cx, cy = s / 2, s / 2
+        r = 8
 
-        # Center circle
-        r = 2.5
-        canvas.create_oval(cx - r, cy - r, cx + r, cy + r, fill=color, outline='')
+        # Arc: 300 degrees of a circle
+        start_deg = 30 + angle_offset
+        self.refresh_canvas.create_arc(
+            cx - r, cy - r, cx + r, cy + r,
+            start=start_deg, extent=300,
+            style='arc', outline=color, width=2
+        )
 
-        # 5 petals radiating outward
-        for i in range(5):
-            angle = math.radians(i * 72 - 90)
-            x1 = cx + 3.5 * math.cos(angle)
-            y1 = cy + 3.5 * math.sin(angle)
-            x2 = cx + 10 * math.cos(angle)
-            y2 = cy + 10 * math.sin(angle)
-            canvas.create_line(x1, y1, x2, y2, fill=color, width=3.5, capstyle='round')
+        # Arrowhead at the start of the arc (the tip)
+        tip_angle = math.radians(start_deg)
+        tip_x = cx + r * math.cos(tip_angle)
+        tip_y = cy - r * math.sin(tip_angle)
 
-        return canvas
+        # Tangent direction (clockwise = decreasing angle visually)
+        tang_angle = tip_angle - math.pi / 2
+        # A short line segment ending at the tip, with an arrowhead
+        base_x = tip_x - 8 * math.cos(tang_angle)
+        base_y = tip_y + 8 * math.sin(tang_angle)
+
+        self.refresh_canvas.create_line(
+            base_x, base_y, tip_x, tip_y,
+            fill=color, width=2, arrow='last', arrowshape=(5, 7, 3)
+        )
 
     def setup_ui(self):
         # Main frame
         self.main_frame = tk.Frame(self.root, bg='#1a1a2e')
         self.main_frame.pack(fill='both', expand=True, padx=8, pady=8)
 
-        # Header - Claude logo only + refresh button
+        # Header - Claude logo + refresh button
         title_frame = tk.Frame(self.main_frame, bg='#16213e')
         title_frame.pack(fill='x', pady=(0, 8))
 
-        logo_canvas = self._draw_claude_logo(title_frame, '#16213e')
-        logo_canvas.pack(side='left', padx=8, pady=4)
+        # Load Claude logo from embedded base64
+        logo_data = base64.b64decode(CLAUDE_LOGO_B64)
+        self.logo_photo = tk.PhotoImage(data=logo_data)
+        # Subsample from 48x48 to 24x24
+        self.logo_photo = self.logo_photo.subsample(2, 2)
+        logo_label = tk.Label(title_frame, image=self.logo_photo, bg='#16213e')
+        logo_label.pack(side='left', padx=8, pady=4)
 
-        # Refresh button
-        self.refresh_btn = tk.Button(
-            title_frame,
-            text="\u21bb",
-            command=self.refresh_with_animation,
-            bg='#16213e',
-            fg='#ffffff',
-            font=('Segoe UI', 11),
-            relief='flat',
-            width=2,
-            cursor='hand2'
+        # Refresh button as canvas with drawn arrow
+        self.refresh_canvas = tk.Canvas(
+            title_frame, width=26, height=26,
+            bg='#16213e', highlightthickness=0, cursor='hand2'
         )
-        self.refresh_btn.pack(side='right', padx=2, pady=2)
+        self.refresh_canvas.pack(side='right', padx=4, pady=4)
+        self._draw_refresh_arrow(0, '#ffffff')
+        self.refresh_canvas.bind('<Button-1>', lambda e: self.refresh_with_animation())
 
         # Content frame
         self.content_frame = tk.Frame(self.main_frame, bg='#1a1a2e')
@@ -247,18 +316,22 @@ class TokenMonitor:
         self.root.geometry(f"+{x}+{y}")
 
     def refresh_with_animation(self):
-        """Refresh with a single circular rotation animation"""
-        self.refresh_btn.config(state='disabled')
+        """Refresh with the circular arrow spinning 360 degrees once"""
+        if self._animating:
+            return
+        self._animating = True
 
-        # One full clockwise rotation
-        frames = ['\u2191', '\u2197', '\u2192', '\u2198', '\u2193', '\u2199', '\u2190', '\u2196']
+        step = 15  # degrees per frame
+        total = 360
+        delay = 20  # ms between frames
 
-        def animate(i=0):
-            if i < len(frames):
-                self.refresh_btn.config(text=frames[i], fg='#4ecca3')
-                self.root.after(80, lambda: animate(i + 1))
+        def animate(angle=0):
+            if angle < total:
+                self._draw_refresh_arrow(angle, '#4ecca3')
+                self.root.after(delay, lambda: animate(angle + step))
             else:
-                self.refresh_btn.config(text='\u21bb', fg='#ffffff', state='normal')
+                self._draw_refresh_arrow(0, '#ffffff')
+                self._animating = False
 
         animate()
         self.refresh_data()
@@ -359,7 +432,6 @@ class TokenMonitor:
         # Check if session reset changed (new session available)
         if session_reset_str != self.last_session_reset:
             if self.last_session_reset is not None and self.session_pct < 10:
-                # Session was reset - send notification if we were waiting
                 self._send_notification()
             self.last_session_reset = session_reset_str
             self.session_notified = False
@@ -435,7 +507,6 @@ class TokenMonitor:
             self.session_notified = True
             self.save_state()
 
-            # Calculate delay
             now = datetime.now(self.session_reset.tzinfo)
             delay = (self.session_reset - now).total_seconds()
 
@@ -478,7 +549,7 @@ class TokenMonitor:
         # Auto-refresh every 2 minutes
         def auto_refresh():
             self.refresh_data()
-            self.root.after(120000, auto_refresh)  # 2 minutes
+            self.root.after(120000, auto_refresh)
 
         self.root.after(120000, auto_refresh)
         self.root.mainloop()
