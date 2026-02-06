@@ -5,6 +5,7 @@ Fetches data from claude.ai/settings/usage via Firefox cookies
 import tkinter as tk
 from tkinter import ttk, messagebox
 import base64
+import io
 import json
 import math
 import os
@@ -17,6 +18,7 @@ from pathlib import Path
 import time
 import urllib.request
 import urllib.error
+from PIL import Image, ImageTk
 
 # Try to import browser_cookie3
 try:
@@ -81,10 +83,13 @@ class TokenMonitor:
         self.root.resizable(False, False)
         self.root.configure(bg='#1a1a2e')
 
+        # Load logo with PIL (reliable across PyInstaller and dev)
+        logo_bytes = base64.b64decode(CLAUDE_LOGO_B64)
+        self._logo_pil = Image.open(io.BytesIO(logo_bytes))
+
         # Set window icon
         try:
-            icon_data = base64.b64decode(CLAUDE_LOGO_B64)
-            self.icon_image = tk.PhotoImage(data=icon_data)
+            self.icon_image = ImageTk.PhotoImage(self._logo_pil)
             self.root.iconphoto(True, self.icon_image)
         except Exception:
             pass
@@ -184,11 +189,9 @@ class TokenMonitor:
         title_frame = tk.Frame(self.main_frame, bg='#16213e')
         title_frame.pack(fill='x', pady=(0, 8))
 
-        # Load Claude logo from embedded base64
-        logo_data = base64.b64decode(CLAUDE_LOGO_B64)
-        self.logo_photo = tk.PhotoImage(data=logo_data)
-        # Subsample from 48x48 to 24x24
-        self.logo_photo = self.logo_photo.subsample(2, 2)
+        # Resize logo from 48x48 to 24x24
+        logo_small = self._logo_pil.resize((24, 24), Image.LANCZOS)
+        self.logo_photo = ImageTk.PhotoImage(logo_small)
         logo_label = tk.Label(title_frame, image=self.logo_photo, bg='#16213e')
         logo_label.pack(side='left', padx=8, pady=4)
 
