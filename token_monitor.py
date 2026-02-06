@@ -47,10 +47,6 @@ class TokenMonitor:
         self.weekly_pct = 0
         self.weekly_reset = None
 
-        # Minimize state
-        self.is_minimized = False
-        self.normal_geometry = None
-
         # Notification tracking
         self.session_notified = False
         self.last_session_reset = None
@@ -105,25 +101,11 @@ class TokenMonitor:
         )
         title_label.pack(side='left', padx=8, pady=4)
 
-        # Minimize button
-        self.min_btn = tk.Button(
-            title_frame,
-            text="─",
-            command=self.toggle_minimize,
-            bg='#16213e',
-            fg='#ffffff',
-            font=('Segoe UI', 9),
-            relief='flat',
-            width=2,
-            cursor='hand2'
-        )
-        self.min_btn.pack(side='right', padx=2, pady=2)
-
-        # Refresh button
-        refresh_btn = tk.Button(
+        # Refresh button with animation
+        self.refresh_btn = tk.Button(
             title_frame,
             text="↻",
-            command=self.refresh_data,
+            command=self.refresh_with_animation,
             bg='#16213e',
             fg='#ffffff',
             font=('Segoe UI', 11),
@@ -131,7 +113,7 @@ class TokenMonitor:
             width=2,
             cursor='hand2'
         )
-        refresh_btn.pack(side='right', padx=2, pady=2)
+        self.refresh_btn.pack(side='right', padx=2, pady=2)
 
         # Content frame
         self.content_frame = tk.Frame(self.main_frame, bg='#1a1a2e')
@@ -244,22 +226,22 @@ class TokenMonitor:
         y = self.root.winfo_y() + event.y - self.drag_y
         self.root.geometry(f"+{x}+{y}")
 
-    def toggle_minimize(self):
-        if self.is_minimized:
-            self.content_frame.pack(fill='both', expand=True)
-            self.root.geometry(self.normal_geometry)
-            self.min_btn.config(text="─")
-            self.is_minimized = False
-        else:
-            self.normal_geometry = self.root.geometry()
-            self.content_frame.pack_forget()
-            geo = self.root.geometry()
-            match = re.match(r'(\d+)x(\d+)\+(-?\d+)\+(-?\d+)', geo)
-            if match:
-                x, y = match.group(3), match.group(4)
-                self.root.geometry(f"180x35+{x}+{y}")
-            self.min_btn.config(text="□")
-            self.is_minimized = True
+    def refresh_with_animation(self):
+        """Refresh with spinning animation"""
+        self.refresh_btn.config(state='disabled')
+
+        # Animation frames
+        frames = ['↻', '↺', '↻', '↺']
+
+        def animate(i=0):
+            if i < 8:  # 8 frames = 2 rotations
+                self.refresh_btn.config(text=frames[i % len(frames)], fg='#4ecca3')
+                self.root.after(100, lambda: animate(i + 1))
+            else:
+                self.refresh_btn.config(text='↻', fg='#ffffff', state='normal')
+
+        animate()
+        self.refresh_data()
 
     def refresh_data(self):
         """Fetch usage data in background"""
