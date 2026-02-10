@@ -6,9 +6,11 @@ Widget Windows always-on-top affichant ta consommation Claude.ai en temps réel,
 
 - **Affichage temps réel** : Session (5h) et usage hebdomadaire
 - **Barres de progression** colorées selon le niveau (vert → orange → rouge)
+- **Indicateur de rythme** : "En avance" (rouge), "On track" (vert), "En retard" (orange) par rapport au rythme idéal de consommation
 - **Always-on-top** : toujours visible sur ton bureau
 - **Notification WhatsApp** : reçois un message quand tes tokens sont dispo (via OpenClaw)
 - **Auto-refresh** : mise à jour toutes les 2 minutes
+- **Icône Claude** : icône PNG personnalisée pour la fenêtre et la barre des tâches
 
 ## Prérequis
 
@@ -57,10 +59,11 @@ self.whatsapp_number = '+33XXXXXXXXX'
 
 ```
 ClaudeUsageWindow/
-├── token_monitor.py   # Application principale
-├── start.bat          # Lanceur Windows
-├── requirements.txt   # Dépendances Python
-├── state.json         # État persistant (auto-généré)
+├── token_monitor.py       # Application principale
+├── start.bat              # Lanceur Windows (sans fenêtre CMD)
+├── icons8-claude-48.png   # Icône Claude
+├── requirements.txt       # Dépendances Python
+├── state.json             # État persistant (auto-généré)
 ├── .gitignore
 └── README.md
 ```

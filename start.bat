@@ -1,3 +1,4 @@
 @echo off
 cd /d "%~dp0"
-pythonw token_monitor.py
+start "" /b pythonw token_monitor.py
+exit

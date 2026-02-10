@@ -5,7 +5,6 @@ Fetches data from claude.ai/settings/usage via Firefox cookies
 import tkinter as tk
 from tkinter import ttk, messagebox
 import json
-import math
 import os
 import subprocess
 import threading
@@ -32,9 +31,15 @@ class TokenMonitor:
         self.root.overrideredirect(False)
 
         # Window settings
-        self.root.geometry("320x175+50+50")
+        self.root.geometry("320x210+50+50")
         self.root.resizable(True, True)
         self.root.configure(bg='#1a1a2e')
+
+        # Icon
+        icon_path = Path(__file__).parent / "icons8-claude-48.png"
+        self.icon_image = tk.PhotoImage(file=str(icon_path))
+        self.icon_small = self.icon_image.subsample(2, 2)  # 48->24px
+        self.root.iconphoto(False, self.icon_image)
 
         # State
         self.state_file = Path(__file__).parent / "state.json"
@@ -87,26 +92,20 @@ class TokenMonitor:
             print(f"Error saving state: {e}")
 
     def _draw_claude_logo(self, parent, bg_color):
-        """Draw the Claude logo (sunburst) on a canvas"""
-        size = 24
-        canvas = tk.Canvas(parent, width=size, height=size, bg=bg_color, highlightthickness=0)
-        color = '#D97757'
-        cx, cy = size / 2, size / 2
+        """Display the Claude logo from PNG"""
+        label = tk.Label(parent, image=self.icon_small, bg=bg_color)
+        return label
 
-        # Center circle
-        r = 2.5
-        canvas.create_oval(cx - r, cy - r, cx + r, cy + r, fill=color, outline='')
-
-        # 5 petals radiating outward
-        for i in range(5):
-            angle = math.radians(i * 72 - 90)
-            x1 = cx + 3.5 * math.cos(angle)
-            y1 = cy + 3.5 * math.sin(angle)
-            x2 = cx + 10 * math.cos(angle)
-            y2 = cy + 10 * math.sin(angle)
-            canvas.create_line(x1, y1, x2, y2, fill=color, width=3.5, capstyle='round')
-
-        return canvas
+    def _get_pace_status(self, actual, expected):
+        """Return (label, color) comparing actual vs expected usage"""
+        if expected is None:
+            return ("", '#a0a0a0')
+        diff = actual - expected
+        if diff > 5:
+            return ("En avance", '#e94560')    # red - consuming too fast
+        elif diff < -5:
+            return ("En retard", '#f4a261')    # orange - consuming slow
+        return ("On track", '#4ecca3')          # green
 
     def _get_bar_color(self, pct):
         """Get color based on usage percentage"""
@@ -182,13 +181,25 @@ class TokenMonitor:
         self.content_frame.pack(fill='both', expand=True)
 
         # --- Session (5h) section ---
+        session_header = tk.Frame(self.content_frame, bg='#1a1a2e')
+        session_header.pack(fill='x')
+
         tk.Label(
-            self.content_frame,
+            session_header,
             text="Session (5h)",
             bg='#1a1a2e',
             fg='#a0a0a0',
             font=('Segoe UI', 9)
-        ).pack(anchor='w')
+        ).pack(side='left')
+
+        self.session_pace_label = tk.Label(
+            session_header,
+            text="",
+            bg='#1a1a2e',
+            fg='#a0a0a0',
+            font=('Segoe UI', 8, 'italic')
+        )
+        self.session_pace_label.pack(side='left', padx=(6, 0))
 
         session_bar_frame = tk.Frame(self.content_frame, bg='#1a1a2e')
         session_bar_frame.pack(fill='x', pady=(2, 0))
@@ -216,13 +227,25 @@ class TokenMonitor:
         self.session_reset_label.pack(anchor='e', pady=(0, 4))
 
         # --- Weekly section ---
+        weekly_header = tk.Frame(self.content_frame, bg='#1a1a2e')
+        weekly_header.pack(fill='x')
+
         tk.Label(
-            self.content_frame,
+            weekly_header,
             text="Hebdomadaire",
             bg='#1a1a2e',
             fg='#a0a0a0',
             font=('Segoe UI', 9)
-        ).pack(anchor='w')
+        ).pack(side='left')
+
+        self.weekly_pace_label = tk.Label(
+            weekly_header,
+            text="",
+            bg='#1a1a2e',
+            fg='#a0a0a0',
+            font=('Segoe UI', 8, 'italic')
+        )
+        self.weekly_pace_label.pack(side='left', padx=(6, 0))
 
         weekly_bar_frame = tk.Frame(self.content_frame, bg='#1a1a2e')
         weekly_bar_frame.pack(fill='x', pady=(2, 0))
@@ -410,6 +433,9 @@ class TokenMonitor:
             self.session_pct_label.config(text=f"{self.session_pct:.0f}%", fg=session_color)
             self._update_bar(self.session_canvas, self.session_pct, self.session_expected_pct, session_color)
 
+            s_text, s_color = self._get_pace_status(self.session_pct, self.session_expected_pct)
+            self.session_pace_label.config(text=s_text, fg=s_color)
+
             if self.session_reset:
                 local_reset = self.session_reset.astimezone()
                 self.session_reset_label.config(text=f"Reset: {local_reset.strftime('%H:%M')}")
@@ -418,6 +444,9 @@ class TokenMonitor:
             weekly_color = self._get_bar_color(self.weekly_pct)
             self.weekly_pct_label.config(text=f"{self.weekly_pct:.0f}%", fg=weekly_color)
             self._update_bar(self.weekly_canvas, self.weekly_pct, self.weekly_expected_pct, weekly_color)
+
+            w_text, w_color = self._get_pace_status(self.weekly_pct, self.weekly_expected_pct)
+            self.weekly_pace_label.config(text=w_text, fg=w_color)
 
             if self.weekly_reset:
                 local_reset = self.weekly_reset.astimezone()
