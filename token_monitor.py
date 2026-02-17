@@ -135,12 +135,12 @@ class TokenMonitor:
 
         tk.Label(
             session_row, text="5H-SE", bg='#1a1a2e', fg='#a0a0a0',
-            font=('Segoe UI', 8, 'bold')
+            font=('Segoe UI', 8, 'bold'), width=5, anchor='w'
         ).pack(side='left')
 
         self.session_reset_label = tk.Label(
             session_row, text="--:--", bg='#1a1a2e', fg='#666666',
-            font=('Segoe UI', 8)
+            font=('Segoe UI', 8), width=10, anchor='e'
         )
         self.session_reset_label.pack(side='right')
 
@@ -158,12 +158,12 @@ class TokenMonitor:
 
         tk.Label(
             weekly_row, text="HEBDO", bg='#1a1a2e', fg='#a0a0a0',
-            font=('Segoe UI', 8, 'bold')
+            font=('Segoe UI', 8, 'bold'), width=5, anchor='w'
         ).pack(side='left')
 
         self.weekly_reset_label = tk.Label(
             weekly_row, text="--/--", bg='#1a1a2e', fg='#666666',
-            font=('Segoe UI', 8)
+            font=('Segoe UI', 8), width=10, anchor='e'
         )
         self.weekly_reset_label.pack(side='right')
 
