@@ -49,11 +49,15 @@ python token_monitor.py
 
 ## Configuration
 
-Le numéro WhatsApp est configuré dans `token_monitor.py` :
+Créez un fichier `config.json` à la racine du projet (voir `config.example.json`) :
 
-```python
-self.whatsapp_number = '+33XXXXXXXXX'
+```json
+{
+  "whatsapp_number": "+33XXXXXXXXX"
+}
 ```
+
+Le numéro peut aussi être défini via la variable d'environnement `WHATSAPP_NUMBER`.
 
 ## Fichiers
 

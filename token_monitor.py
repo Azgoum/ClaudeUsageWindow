@@ -42,8 +42,9 @@ class TokenMonitor:
 
         # State
         self.state_file = Path(__file__).parent / "state.json"
+        self.config_file = Path(__file__).parent / "config.json"
         self.org_uuid = None
-        self.whatsapp_number = '+33XXXXXXXXX'
+        self.whatsapp_number = self._load_whatsapp_number()
         self.load_state()
 
         # Usage data
@@ -64,6 +65,25 @@ class TokenMonitor:
         # Initial fetch
         self.refresh_data()
 
+    def _load_whatsapp_number(self):
+        """Load WhatsApp number from config.json or environment variable"""
+        # 1. Environment variable
+        env_number = os.environ.get('WHATSAPP_NUMBER')
+        if env_number:
+            return env_number
+        # 2. config.json
+        try:
+            if self.config_file.exists():
+                with open(self.config_file, 'r') as f:
+                    config = json.load(f)
+                    number = config.get('whatsapp_number')
+                    if number:
+                        return number
+        except Exception:
+            pass
+        # 3. Placeholder (notifications will not work)
+        return '+33XXXXXXXXX'
+
     def load_state(self):
         """Load saved state"""
         try:
@@ -71,7 +91,8 @@ class TokenMonitor:
                 with open(self.state_file, 'r') as f:
                     data = json.load(f)
                     self.org_uuid = data.get('org_uuid')
-                    self.whatsapp_number = data.get('whatsapp_number', '+33XXXXXXXXX')
+                    if data.get('whatsapp_number'):
+                        self.whatsapp_number = data.get('whatsapp_number')
                     self.session_notified = data.get('session_notified', False)
                     self.last_session_reset = data.get('last_session_reset')
         except Exception:
