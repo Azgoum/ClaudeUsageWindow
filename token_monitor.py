@@ -290,8 +290,10 @@ class TokenMonitor:
 
     def _process_usage(self, data):
         """Process usage data and update UI"""
-        five_hour = data.get('five_hour', {})
-        seven_day = data.get('seven_day', {})
+        # The API returns null (not a missing key) for windows with no activity,
+        # e.g. five_hour is null when no 5-hour session is running.
+        five_hour = data.get('five_hour') or {}
+        seven_day = data.get('seven_day') or {}
 
         self.session_pct = five_hour.get('utilization', 0) or 0
         self.weekly_pct = seven_day.get('utilization', 0) or 0
@@ -299,7 +301,11 @@ class TokenMonitor:
         session_reset_str = five_hour.get('resets_at')
         weekly_reset_str = seven_day.get('resets_at')
 
-        # Parse reset times
+        # Parse reset times (clear them when the window is inactive)
+        self.session_reset = None
+        self.session_expected_pct = None
+        self.weekly_reset = None
+        self.weekly_expected_pct = None
         if session_reset_str:
             self.session_reset = datetime.fromisoformat(session_reset_str.replace('Z', '+00:00'))
         if weekly_reset_str:
@@ -333,6 +339,8 @@ class TokenMonitor:
             if self.session_reset:
                 local_reset = self.session_reset.astimezone()
                 self.session_reset_label.config(text=local_reset.strftime('%H:%M'))
+            else:
+                self.session_reset_label.config(text="--:--")
 
             # Weekly
             weekly_color = self._get_bar_color(self.weekly_pct, self.weekly_expected_pct)
@@ -342,6 +350,8 @@ class TokenMonitor:
             if self.weekly_reset:
                 local_reset = self.weekly_reset.astimezone()
                 self.weekly_reset_label.config(text=local_reset.strftime('%d/%m %H:%M'))
+            else:
+                self.weekly_reset_label.config(text="--/--")
 
             # Status
             now = datetime.now().strftime('%H:%M')
