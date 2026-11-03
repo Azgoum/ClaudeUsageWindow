@@ -1,4 +1,5 @@
 import type { Lang } from './types'
+export type { Lang } from './types'
 
 // Copy comes from the prototype's I18N (Chrome strings dropped, Firefox strings added).
 const en = {
