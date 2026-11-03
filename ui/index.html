@@ -1,0 +1,36 @@
+<!doctype html>
+<!-- Placeholder UI for Task 10 (no build step). Replaced by the Vite app in Task 11. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Claude Limit Checker</title>
+  <style>
+    html, body { margin: 0; background: transparent; color: #e7e7ea; font: 10px/1.3 Consolas, monospace; }
+    body { padding: 6px; height: 138px; overflow: auto; background: rgba(20, 20, 24, 0.55); }
+    #bar { display: flex; gap: 4px; margin-bottom: 4px; }
+    #bar span { flex: 1; cursor: move; }
+    button { font: inherit; padding: 1px 6px; }
+    pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <span data-tauri-drag-region>limitrings</span>
+    <button id="connect">Connect</button>
+    <button id="refresh">Refresh</button>
+    <button id="quit">x</button>
+  </div>
+  <pre id="s">waiting for state...</pre>
+  <script>
+    const { invoke } = window.__TAURI__.core;
+    const { listen } = window.__TAURI__.event;
+    const show = (state) => { document.getElementById('s').textContent = JSON.stringify(state, null, 1); };
+    const send = (cmd) => invoke('send_command', { cmd }).catch((e) => console.error(e));
+    listen('state', (e) => show(e.payload));
+    invoke('get_state').then(show);
+    document.getElementById('connect').onclick = () => send({ type: 'connect' });
+    document.getElementById('refresh').onclick = () => send({ type: 'refresh' });
+    document.getElementById('quit').onclick = () => invoke('quit');
+  </script>
+</body>
+</html>

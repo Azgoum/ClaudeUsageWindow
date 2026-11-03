@@ -1,0 +1,535 @@
+mod launch;
+mod logging;
+
+use limits_core::session::firefox::FirefoxSource;
+use limits_core::{
+    clamp_position, spawn_engine, AppState, Command, EngineDeps, HttpApi, KeyringCreds, Rect,
+    Settings, SettingsStore, SystemClock,
+};
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewWindow, WindowEvent};
+use tauri_plugin_autostart::ManagerExt;
+use tokio::sync::{mpsc, watch};
+use url::Url;
+
+const MAIN: &str = "main";
+const AUTOSTART_NAME: &str = "limitrings";
+const MOVE_DEBOUNCE: Duration = Duration::from_millis(500);
+
+/// Command sent by the UI: `{type: "connect"}`, `{type: "selectOrg", uuid: "..."}`, ...
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum CommandDto {
+    Connect,
+    CancelConnect,
+    Refresh,
+    SelectOrg { uuid: String },
+    Disconnect,
+}
+
+impl From<CommandDto> for Command {
+    fn from(dto: CommandDto) -> Self {
+        match dto {
+            CommandDto::Connect => Command::Connect,
+            CommandDto::CancelConnect => Command::CancelConnect,
+            CommandDto::Refresh => Command::Refresh,
+            CommandDto::SelectOrg { uuid } => Command::SelectOrg(uuid),
+            CommandDto::Disconnect => Command::Disconnect,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Prefs {
+    pub language: String,
+    pub always_on_top: bool,
+    pub start_with_windows: bool,
+}
+
+/// Saved `fr`/`en`, else `fr` when the system locale starts with `fr`, else `en`.
+pub fn resolve_language(saved: Option<&str>, locale: Option<&str>) -> &'static str {
+    match saved {
+        Some("fr") => "fr",
+        Some("en") => "en",
+        _ if locale.is_some_and(|l| l.to_ascii_lowercase().starts_with("fr")) => "fr",
+        _ => "en",
+    }
+}
+
+impl Prefs {
+    pub fn from_settings(s: &Settings, locale: Option<&str>) -> Self {
+        Self {
+            language: resolve_language(s.language.as_deref(), locale).to_string(),
+            always_on_top: s.always_on_top,
+            start_with_windows: s.start_with_windows,
+        }
+    }
+}
+
+/// Saved position clamped to the monitors; with nothing saved, the primary's top-right
+/// (clamp_position's fallback). All values in physical pixels.
+pub fn initial_position(
+    saved: Option<(i32, i32)>,
+    size: (i32, i32),
+    monitors: &[Rect],
+    primary: Rect,
+) -> (i32, i32) {
+    match saved {
+        Some(pos) => clamp_position(pos, size, monitors, primary),
+        // No monitor to be visible on: clamp_position falls back to the primary's top-right.
+        None => clamp_position((0, 0), size, &[], primary),
+    }
+}
+
+/// Debug-only dev switches (release builds ignore every `LIMITRINGS_*` variable).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct DevEnv {
+    /// `LIMITRINGS_BASE_URL`: API base instead of https://claude.ai.
+    pub base_url: Option<Url>,
+    /// `LIMITRINGS_FAKE_SESSION=1`: FixedSource + isolated credentials and settings.
+    pub fake_session: bool,
+    /// `LIMITRINGS_AUTOCONNECT=1`: send Connect at startup.
+    pub autoconnect: bool,
+}
+
+impl DevEnv {
+    pub fn from_vars(get: impl Fn(&str) -> Option<String>) -> Self {
+        let on = |k: &str| get(k).is_some_and(|v| v.trim() == "1");
+        let base_url = get("LIMITRINGS_BASE_URL").and_then(|v| match Url::parse(v.trim()) {
+            Ok(u) => Some(u),
+            Err(e) => {
+                tracing::warn!("ignoring invalid LIMITRINGS_BASE_URL: {e}");
+                None
+            }
+        });
+        Self {
+            base_url,
+            fake_session: on("LIMITRINGS_FAKE_SESSION"),
+            autoconnect: on("LIMITRINGS_AUTOCONNECT"),
+        }
+    }
+
+    fn current() -> Self {
+        if cfg!(debug_assertions) {
+            Self::from_vars(|k| std::env::var(k).ok())
+        } else {
+            Self::default()
+        }
+    }
+}
+
+/// `<appdata>\limitrings\settings.json`, or `limitrings-dev` for isolated dev runs.
+pub fn settings_path(appdata: &Path, dev: bool) -> PathBuf {
+    appdata
+        .join(if dev { "limitrings-dev" } else { "limitrings" })
+        .join("settings.json")
+}
+
+#[cfg(debug_assertions)]
+struct FakeLauncher(Arc<limits_core::session::FixedSource>);
+
+#[cfg(debug_assertions)]
+impl limits_core::BrowserLauncher for FakeLauncher {
+    fn firefox_installed(&self) -> bool {
+        true
+    }
+    fn open_login(&self) -> anyhow::Result<()> {
+        tracing::info!("fake session: login opened, session available in 5 s");
+        self.0.arm();
+        Ok(())
+    }
+}
+
+fn build_deps(dev: &DevEnv, settings: PathBuf) -> EngineDeps {
+    let api = Arc::new(match &dev.base_url {
+        Some(base) => HttpApi::new(base.clone()),
+        None => HttpApi::claude(),
+    });
+    let settings = SettingsStore::new(settings);
+    #[cfg(debug_assertions)]
+    if dev.fake_session {
+        use limits_core::session::{FixedSource, FAKE_ORG_UUID};
+        let source = Arc::new(FixedSource::new(FAKE_ORG_UUID));
+        return EngineDeps {
+            api,
+            source: source.clone(),
+            creds: Arc::new(KeyringCreds::with_user("session-dev")),
+            settings,
+            clock: Arc::new(SystemClock),
+            browser: Arc::new(FakeLauncher(source)),
+        };
+    }
+    EngineDeps {
+        api,
+        source: Arc::new(FirefoxSource::new(
+            FirefoxSource::default_root().unwrap_or_default(),
+        )),
+        creds: Arc::new(KeyringCreds::new()),
+        settings,
+        clock: Arc::new(SystemClock),
+        browser: Arc::new(launch::FirefoxLauncher),
+    }
+}
+
+struct Shell {
+    cmd: mpsc::Sender<Command>,
+    state: watch::Receiver<AppState>,
+    /// Serializes the shell's load -> modify -> save cycles.
+    settings: Mutex<SettingsStore>,
+    /// False in isolated dev runs: the debug exe must never be registered at logon.
+    manage_autostart: bool,
+    move_gen: AtomicU64,
+}
+
+impl Shell {
+    fn load(&self) -> Settings {
+        self.settings.lock().unwrap().load()
+    }
+
+    fn update(&self, f: impl FnOnce(&mut Settings)) -> Result<(), String> {
+        let store = self.settings.lock().unwrap();
+        let mut s = store.load();
+        f(&mut s);
+        store.save(&s).map_err(|e| {
+            tracing::warn!("cannot save settings: {e}");
+            e.to_string()
+        })
+    }
+}
+
+fn apply_autostart(app: &AppHandle, manage: bool, on: bool) -> Result<(), String> {
+    if !manage {
+        tracing::info!(on, "dev run: autostart left untouched");
+        return Ok(());
+    }
+    let launcher = app.autolaunch();
+    let res = if on {
+        launcher.enable()
+    } else {
+        launcher.disable()
+    };
+    res.map_err(|e| {
+        tracing::warn!(on, "cannot change autostart: {e}");
+        e.to_string()
+    })
+}
+
+#[tauri::command]
+fn get_state(shell: State<'_, Shell>) -> AppState {
+    shell.state.borrow().clone()
+}
+
+#[tauri::command]
+async fn send_command(shell: State<'_, Shell>, cmd: CommandDto) -> Result<(), String> {
+    shell.cmd.send(cmd.into()).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_prefs(shell: State<'_, Shell>) -> Prefs {
+    Prefs::from_settings(&shell.load(), sys_locale::get_locale().as_deref())
+}
+
+#[tauri::command]
+fn set_language(shell: State<'_, Shell>, lang: String) -> Result<(), String> {
+    if lang != "fr" && lang != "en" {
+        return Err(format!("unsupported language: {lang}"));
+    }
+    shell.update(|s| s.language = Some(lang))
+}
+
+#[tauri::command]
+fn set_always_on_top(app: AppHandle, shell: State<'_, Shell>, on: bool) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(MAIN) {
+        w.set_always_on_top(on).map_err(|e| e.to_string())?;
+    }
+    shell.update(|s| s.always_on_top = on)
+}
+
+#[tauri::command]
+fn set_start_with_windows(app: AppHandle, shell: State<'_, Shell>, on: bool) -> Result<(), String> {
+    apply_autostart(&app, shell.manage_autostart, on)?;
+    shell.update(|s| s.start_with_windows = on)
+}
+
+#[tauri::command]
+fn quit(app: AppHandle) {
+    app.exit(0);
+}
+
+/// Work area (monitor minus taskbar), physical pixels.
+fn monitor_rect(m: &tauri::Monitor) -> Rect {
+    let a = m.work_area();
+    Rect {
+        x: a.position.x,
+        y: a.position.y,
+        w: a.size.width as i32,
+        h: a.size.height as i32,
+    }
+}
+
+fn place_window(w: &WebviewWindow, saved: Option<(i32, i32)>) -> tauri::Result<()> {
+    let monitors: Vec<Rect> = w.available_monitors()?.iter().map(monitor_rect).collect();
+    let primary = match w.primary_monitor()? {
+        Some(m) => monitor_rect(&m),
+        None => match monitors.first() {
+            Some(r) => *r,
+            None => return Ok(()),
+        },
+    };
+    let size = w.outer_size()?;
+    let (x, y) = initial_position(
+        saved,
+        (size.width as i32, size.height as i32),
+        &monitors,
+        primary,
+    );
+    w.set_position(PhysicalPosition::new(x, y))
+}
+
+fn on_moved(app: &AppHandle, pos: PhysicalPosition<i32>) {
+    let gen = app.state::<Shell>().move_gen.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(MOVE_DEBOUNCE).await;
+        let shell = app.state::<Shell>();
+        if shell.move_gen.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        // Minimizing reports a (-32000, -32000) move; never persist that.
+        let minimized = app
+            .get_webview_window(MAIN)
+            .and_then(|w| w.is_minimized().ok())
+            .unwrap_or(false);
+        if !minimized {
+            let _ = shell.update(|s| s.position = Some((pos.x, pos.y)));
+        }
+    });
+}
+
+fn forward_state(app: AppHandle, mut rx: watch::Receiver<AppState>) {
+    tauri::async_runtime::spawn(async move {
+        let mut last_conn = None;
+        loop {
+            let s = rx.borrow_and_update().clone();
+            if last_conn.as_ref() != Some(&s.conn) {
+                tracing::info!(conn = ?s.conn, "state");
+                last_conn = Some(s.conn.clone());
+            }
+            if let Err(e) = app.emit("state", &s) {
+                tracing::warn!("cannot emit state: {e}");
+            }
+            if rx.changed().await.is_err() {
+                break;
+            }
+        }
+    });
+}
+
+fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let dev = DevEnv::current();
+    if dev != DevEnv::default() {
+        tracing::info!(?dev, "dev switches active");
+    }
+    let appdata = std::env::var_os("APPDATA").ok_or("APPDATA is not set")?;
+    let path = settings_path(Path::new(&appdata), dev.fake_session);
+    let first_run = !path.exists();
+    let store = SettingsStore::new(path.clone());
+    let settings = store.load();
+    let manage_autostart = !dev.fake_session;
+
+    if first_run {
+        tracing::info!("first run: applying defaults");
+        let _ = apply_autostart(app.handle(), manage_autostart, settings.start_with_windows);
+        if let Err(e) = store.save(&settings) {
+            tracing::warn!("cannot save settings: {e}");
+        }
+    }
+
+    let deps = build_deps(&dev, path);
+    let (cmd, state) = tauri::async_runtime::block_on(async move { spawn_engine(deps) });
+    if dev.autoconnect {
+        tracing::info!("dev autoconnect: sending Connect");
+        let _ = cmd.try_send(Command::Connect);
+    }
+    forward_state(app.handle().clone(), state.clone());
+    app.manage(Shell {
+        cmd,
+        state,
+        settings: Mutex::new(store),
+        manage_autostart,
+        move_gen: AtomicU64::new(0),
+    });
+
+    let w = app.get_webview_window(MAIN).ok_or("main window missing")?;
+    if let Err(e) = place_window(&w, settings.position) {
+        tracing::warn!("cannot place window: {e}");
+    }
+    w.set_always_on_top(settings.always_on_top)?;
+    w.show()?;
+    Ok(())
+}
+
+pub fn run() {
+    let log_dir = logging::init();
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), ?log_dir, "starting");
+    let result = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tracing::info!("second instance launched: focusing the widget");
+            if let Some(w) = app.get_webview_window(MAIN) {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
+        .plugin(
+            // The MacosLauncher setting only exists on macOS builds; Windows uses the Run key.
+            tauri_plugin_autostart::Builder::new()
+                .app_name(AUTOSTART_NAME)
+                .build(),
+        )
+        .setup(setup)
+        .on_window_event(|w, e| match e {
+            WindowEvent::CloseRequested { .. } => w.app_handle().exit(0),
+            WindowEvent::Moved(pos) if w.label() == MAIN => on_moved(w.app_handle(), *pos),
+            _ => {}
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_state,
+            send_command,
+            get_prefs,
+            set_language,
+            set_always_on_top,
+            set_start_with_windows,
+            quit
+        ])
+        .run(tauri::generate_context!());
+    if let Err(e) = result {
+        tracing::error!("tauri runtime failed: {e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dto(json: &str) -> Command {
+        serde_json::from_str::<CommandDto>(json).unwrap().into()
+    }
+
+    #[test]
+    fn command_dto_deserializes_every_variant() {
+        assert_eq!(dto(r#"{"type":"connect"}"#), Command::Connect);
+        assert_eq!(dto(r#"{"type":"cancelConnect"}"#), Command::CancelConnect);
+        assert_eq!(dto(r#"{"type":"refresh"}"#), Command::Refresh);
+        assert_eq!(
+            dto(r#"{"type":"selectOrg","uuid":"o-1"}"#),
+            Command::SelectOrg("o-1".into())
+        );
+        assert_eq!(dto(r#"{"type":"disconnect"}"#), Command::Disconnect);
+    }
+
+    #[test]
+    fn command_dto_rejects_unknown_or_incomplete() {
+        assert!(serde_json::from_str::<CommandDto>(r#"{"type":"explode"}"#).is_err());
+        assert!(serde_json::from_str::<CommandDto>(r#"{"type":"selectOrg"}"#).is_err());
+    }
+
+    #[test]
+    fn language_saved_then_locale_then_en() {
+        assert_eq!(resolve_language(Some("en"), Some("fr-FR")), "en");
+        assert_eq!(resolve_language(Some("fr"), Some("en-GB")), "fr");
+        assert_eq!(resolve_language(None, Some("fr-FR")), "fr");
+        assert_eq!(resolve_language(None, Some("fr")), "fr");
+        assert_eq!(resolve_language(None, Some("en-US")), "en");
+        assert_eq!(resolve_language(None, Some("de-DE")), "en");
+        assert_eq!(resolve_language(None, None), "en");
+        // Junk in the settings file falls through to the locale.
+        assert_eq!(resolve_language(Some("xx"), Some("fr-CA")), "fr");
+    }
+
+    #[test]
+    fn prefs_serialize_camel_case() {
+        let s = Settings {
+            always_on_top: false,
+            ..Settings::default()
+        };
+        let p = Prefs::from_settings(&s, Some("fr-FR"));
+        assert_eq!(
+            serde_json::to_value(&p).unwrap(),
+            serde_json::json!({"language": "fr", "alwaysOnTop": false, "startWithWindows": true})
+        );
+    }
+
+    const PRIMARY: Rect = Rect {
+        x: 0,
+        y: 0,
+        w: 1920,
+        h: 1080,
+    };
+    const SIZE: (i32, i32) = (242, 150);
+
+    #[test]
+    fn default_position_is_primary_top_right() {
+        let second = Rect {
+            x: -1280,
+            y: 0,
+            w: 1280,
+            h: 1024,
+        };
+        assert_eq!(
+            initial_position(None, SIZE, &[second, PRIMARY], PRIMARY),
+            (1920 - 242 - 16, 16)
+        );
+    }
+
+    #[test]
+    fn saved_position_kept_or_snapped() {
+        assert_eq!(
+            initial_position(Some((100, 200)), SIZE, &[PRIMARY], PRIMARY),
+            (100, 200)
+        );
+        assert_eq!(
+            initial_position(Some((5000, 5000)), SIZE, &[PRIMARY], PRIMARY),
+            (1662, 16)
+        );
+    }
+
+    #[test]
+    fn dev_env_parses_flags() {
+        let vars = |k: &str| match k {
+            "LIMITRINGS_BASE_URL" => Some("http://127.0.0.1:8787".to_string()),
+            "LIMITRINGS_FAKE_SESSION" => Some("1".to_string()),
+            "LIMITRINGS_AUTOCONNECT" => Some("0".to_string()),
+            _ => None,
+        };
+        assert_eq!(
+            DevEnv::from_vars(vars),
+            DevEnv {
+                base_url: Some(Url::parse("http://127.0.0.1:8787").unwrap()),
+                fake_session: true,
+                autoconnect: false,
+            }
+        );
+        assert_eq!(DevEnv::from_vars(|_| None), DevEnv::default());
+        let bad = |k: &str| (k == "LIMITRINGS_BASE_URL").then(|| "not a url".to_string());
+        assert_eq!(DevEnv::from_vars(bad).base_url, None);
+    }
+
+    #[test]
+    fn settings_path_isolates_dev_runs() {
+        let appdata = Path::new(r"C:\Users\u\AppData\Roaming");
+        assert_eq!(
+            settings_path(appdata, false),
+            PathBuf::from(r"C:\Users\u\AppData\Roaming\limitrings\settings.json")
+        );
+        assert_eq!(
+            settings_path(appdata, true),
+            PathBuf::from(r"C:\Users\u\AppData\Roaming\limitrings-dev\settings.json")
+        );
+    }
+}
