@@ -51,6 +51,50 @@ pub trait SessionSource: Send + Sync {
     fn read(&self) -> anyhow::Result<Option<SessionCookies>>;
 }
 
+/// Must equal the first org uuid in `tools/fake-claude/server.mjs`.
+#[cfg(debug_assertions)]
+pub const FAKE_ORG_UUID: &str = "0b5a1f6e-3c2d-4e8a-9a41-7d6c5b4a3f21";
+
+/// Debug-only session source: yields a fake session a fixed delay after `arm()`.
+#[cfg(debug_assertions)]
+pub struct FixedSource {
+    org_uuid: String,
+    delay: std::time::Duration,
+    armed_at: std::sync::Mutex<Option<std::time::Instant>>,
+}
+
+#[cfg(debug_assertions)]
+impl FixedSource {
+    pub fn new(org_uuid: &str) -> Self {
+        Self::with_delay(org_uuid, std::time::Duration::from_secs(5))
+    }
+
+    pub fn with_delay(org_uuid: &str, delay: std::time::Duration) -> Self {
+        Self {
+            org_uuid: org_uuid.to_string(),
+            delay,
+            armed_at: std::sync::Mutex::new(None),
+        }
+    }
+
+    pub fn arm(&self) {
+        *self.armed_at.lock().unwrap() = Some(std::time::Instant::now());
+    }
+}
+
+#[cfg(debug_assertions)]
+impl SessionSource for FixedSource {
+    fn read(&self) -> anyhow::Result<Option<SessionCookies>> {
+        let armed = *self.armed_at.lock().unwrap();
+        Ok(armed.filter(|t| t.elapsed() >= self.delay).map(|_| SessionCookies {
+            cookies: vec![
+                ("sessionKey".into(), "dev".into()),
+                ("lastActiveOrg".into(), self.org_uuid.clone()),
+            ],
+        }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,5 +132,27 @@ mod tests {
         let d = c(&[("sessionKey", "k2")]);
         assert_eq!(a.fingerprint(), b.fingerprint());
         assert_ne!(a.fingerprint(), d.fingerprint());
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn fixed_source_yields_session_only_after_arm_and_delay() {
+        use std::time::Duration;
+        let src = FixedSource::with_delay(FAKE_ORG_UUID, Duration::from_millis(150));
+        assert!(src.read().unwrap().is_none(), "never armed");
+        src.arm();
+        assert!(src.read().unwrap().is_none(), "before delay");
+        std::thread::sleep(Duration::from_millis(200));
+        let s = src.read().unwrap().expect("after delay");
+        assert!(s.has_session());
+        assert_eq!(s.last_active_org(), Some(FAKE_ORG_UUID));
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn fixed_source_default_delay_is_five_seconds() {
+        let src = FixedSource::new(FAKE_ORG_UUID);
+        src.arm();
+        assert!(src.read().unwrap().is_none());
     }
 }
