@@ -1,4 +1,5 @@
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from 'react'
+import { prefersReducedMotion, run } from '@/anim/stage'
 import { PACE_COLOR } from '@/lib/colors'
 import { resetLine } from '@/lib/format'
 import { t } from '@/lib/i18n'
@@ -13,16 +14,36 @@ export interface RingHandle {
   readonly tick: SVGLineElement | null
   readonly num: SVGTextElement | null
   readonly ok: HTMLSpanElement | null
+  /** Writes the latest `view` into the DOM (after an animation wrote its own values). */
+  paint(): void
 }
 
 interface Props {
   view: RingView
   lang: Lang
   now: number
+  /** While a reset animation plays, the ring keeps showing the view it had before (Task 14). */
+  held?: boolean
+  /** Position in the row, for the entrance stagger. */
+  index?: number
   ref?: Ref<RingHandle>
 }
 
-export function Ring({ view, lang, now, ref }: Props) {
+/** Entrance (brainstorm mockup): arcs spring from empty, 1200 ms, 90 ms apart. */
+const ENTER_MS = 1200
+const ENTER_STAGGER_MS = 90
+const ENTER_EASE = [0.2, 0.9, 0.25, 1.05] as const
+
+export function Ring({ view: live, lang, now, held = false, index = 0, ref }: Props) {
+  // Held: render the last view seen before the lock; the live one is applied on release.
+  const [free, setFree] = useState(live)
+  if (!held && free !== live) setFree(live)
+  const view = held ? free : live
+  const latest = useRef(live)
+  useLayoutEffect(() => {
+    latest.current = live
+  })
+
   const svg = useRef<SVGSVGElement>(null)
   const arc = useRef<SVGCircleElement>(null)
   const glint = useRef<SVGCircleElement>(null)
@@ -50,16 +71,59 @@ export function Ring({ view, lang, now, ref }: Props) {
       get ok() {
         return ok.current
       },
+      paint() {
+        // Same values React renders (prototype `paintRings`); the arc eases from where the
+        // animation left it and the colour fades through the CSS transitions.
+        const v = latest.current
+        arc.current?.setAttribute('stroke-dashoffset', String(arcOffset(v.used)))
+        arc.current?.setAttribute('stroke', PACE_COLOR[v.pace])
+        num.current?.setAttribute('fill', numFill(v))
+        const text = num.current?.firstChild
+        if (text) text.nodeValue = String(ringNumber(v.used))
+        if (tick.current) {
+          tick.current.style.opacity = String(tickOpacity(v.expected))
+          tick.current.style.transform = `rotate(${tickAngle(v.expected)}deg)`
+        }
+      },
     }),
     [],
   )
 
-  // Entrance: start empty, then let the CSS transition fill the ring (prototype paintRings in rAF).
+  // Entrance: the ring mounts when the rings first arrive (also after a reconnect) and its arc
+  // springs from empty. The tick turns in through its CSS transition (prototype paintRings in rAF).
   const [entered, setEntered] = useState(false)
   useEffect(() => {
     const id = requestAnimationFrame(() => setEntered(true))
     return () => cancelAnimationFrame(id)
   }, [])
+  useLayoutEffect(() => {
+    const el = arc.current
+    if (!el || prefersReducedMotion()) return
+    el.style.transition = 'none'
+    el.setAttribute('stroke-dashoffset', String(CIRC))
+    const a = run(
+      el,
+      { strokeDashoffset: [CIRC, arcOffset(latest.current.used)] },
+      { duration: ENTER_MS, delay: index * ENTER_STAGGER_MS, ease: [...ENTER_EASE] },
+    )
+    const entrance = { active: true }
+    const done = () => {
+      if (!entrance.active) return
+      // motion leaves its last value as an inline style, which would beat the attribute.
+      el.style.removeProperty('stroke-dashoffset')
+      el.style.transition = ''
+      // Values that changed meanwhile: React wrote them, the animation wrote over them.
+      el.setAttribute('stroke-dashoffset', String(arcOffset(latest.current.used)))
+    }
+    void a.finished.then(done, done)
+    return () => {
+      entrance.active = false
+      a.cancel()
+      el.style.removeProperty('stroke-dashoffset')
+      el.style.transition = ''
+    }
+    // Mount only (index never changes): the entrance plays once per appearance of the rings.
+  }, [index])
 
   const L = t(lang)
   const resetsAt = view.resetsAt ? new Date(view.resetsAt) : null
@@ -79,7 +143,7 @@ export function Ring({ view, lang, now, ref }: Props) {
           strokeLinecap="round"
           transform="rotate(-90 32 32)"
           strokeDasharray={CIRC}
-          strokeDashoffset={entered ? arcOffset(view.used) : CIRC}
+          strokeDashoffset={arcOffset(view.used)}
         />
         <circle
           ref={glint}

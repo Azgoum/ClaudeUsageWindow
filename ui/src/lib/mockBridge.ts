@@ -3,7 +3,11 @@
 import type { Bridge, UnlistenFn } from './bridge'
 import type { AppState, CommandDto, Lang, OrgSummary, Prefs, ResetEvent, RingView } from './types'
 
-type ResetKind = 'planned' | 'surprise' | 'both'
+/**
+ * planned / surprise: the session ring; plannedWeekly / surpriseWeekly: the weekly ring;
+ * both: two surprises; bothPlanned: two planned resets.
+ */
+type ResetKind = 'planned' | 'surprise' | 'both' | 'bothPlanned' | 'plannedWeekly' | 'surpriseWeekly'
 
 export interface MockApi {
   push(state: Partial<AppState>): void
@@ -129,15 +133,24 @@ const savePrefs = () => {
   }
 }
 
+/** How early the mock's surprises come: 2h14 (session), 3d 12h (weekly). */
+const EARLY_SECS: Record<ResetEvent['key'], number> = { session: 8040, weekly: 302_400 }
+
 function reset(kind: ResetKind) {
   if (!state.rings) return
   const now = Date.now()
-  const keys: ResetEvent['key'][] = kind === 'both' ? ['session', 'weekly'] : ['session']
+  const keys: ResetEvent['key'][] =
+    kind === 'both' || kind === 'bothPlanned'
+      ? ['session', 'weekly']
+      : kind === 'plannedWeekly' || kind === 'surpriseWeekly'
+        ? ['weekly']
+        : ['session']
+  const planned = kind === 'planned' || kind === 'bothPlanned' || kind === 'plannedWeekly'
   const events: ResetEvent[] = keys.map((key) => {
     const fromUsed = state.rings!.find((r) => r.key === key)!.used
-    return kind === 'planned'
+    return planned
       ? { key, kind: 'planned', fromUsed }
-      : { key, kind: 'surprise', earlySecs: 83 * 60, fromUsed }
+      : { key, kind: 'surprise', earlySecs: EARLY_SECS[key], fromUsed }
   })
   const next = state.rings.map((r) =>
     keys.includes(r.key)

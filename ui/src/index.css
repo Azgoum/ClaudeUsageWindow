@@ -204,3 +204,18 @@
   background: radial-gradient(120% 90% at 10% 0%, #3b2a6b 0%, transparent 55%), radial-gradient(90% 80% at 100% 100%, #0f4c5c 0%, transparent 60%), linear-gradient(135deg,#17171f,#0d0d12); }
 .mock-desktop::before { content:""; position:absolute; width:260px; height:260px; border-radius:50%; background:#d97757; filter: blur(80px); opacity:.3; left:30%; top:30%; }
 .mock-desktop .wd { left: auto; right: 16px; top: 16px; }
+/* ---------- reset animations (Task 14; prototype .chip / .spark) ---------- */
+/* The pill sits inside the widget near the bottom: the window is exactly the widget's box and the
+   longest French texts need two lines. */
+.wd .chip { position: absolute; left: 50%; bottom: 7px; transform: translateX(-50%); width: max-content; max-width: calc(100% - 16px); white-space: normal; text-align: center; line-height: 1.25; font-size: 10.5px; font-weight: 650; padding: 4px 10px; border-radius: 99px; opacity: 0; pointer-events: none; z-index: 3; }
+.wd .chip.calm { background: rgba(20,40,32,.9); color: #a7f3d0; border: 1px solid rgba(52,211,153,.45); }
+.wd .chip.gold { background: rgba(48,40,10,.92); color: #fde68a; border: 1px solid rgba(250,204,21,.55); box-shadow: 0 0 18px rgba(250,204,21,.35); }
+.tauri .wd .chip.gold { box-shadow: 0 0 12px rgba(250,204,21,.3); }
+/* Sparks stay on the glass. */
+.wd .sparks { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; pointer-events: none; z-index: 4; }
+.wd .spark { position: absolute; width: 5px; height: 5px; border-radius: 50%; pointer-events: none; }
+/* Surprise glow: an overlay whose opacity is animated. The browser mock glows outside like the
+   prototype; in Tauri nothing outside the border is visible, so it glows inward. */
+.wd .glow { position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; opacity: 0; z-index: 3;
+  box-shadow: 0 0 0 1.5px rgba(250,204,21,.85), 0 0 40px rgba(250,204,21,.4); }
+.tauri .wd .glow { box-shadow: inset 0 0 0 1.5px rgba(250,204,21,.85), inset 0 0 26px rgba(250,204,21,.32); }

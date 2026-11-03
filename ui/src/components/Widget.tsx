@@ -1,14 +1,31 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent, type PointerEvent, type RefObject } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent,
+  type RefObject,
+} from 'react'
+import { flushSync } from 'react-dom'
+import { lockKeys, release, type Locks } from '@/anim/lock'
+import { pillFor, type PillSpec } from '@/anim/pill'
+import { playPlanned } from '@/anim/planned'
+import { stopStage } from '@/anim/stage'
+import { playSurprise } from '@/anim/surprise'
 import { fitWindow, startDrag } from '@/lib/bridge'
 import { errLine, isNearLimit } from '@/lib/ring'
 import { maxRoom, menuRoom, tipRoom, withRingRoom, type RingRooms } from '@/lib/room'
-import type { AppState, Lang, LimitKey, Prefs } from '@/lib/types'
+import type { AppState, Lang, LimitKey, Prefs, ResetEvent } from '@/lib/types'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { ConnectPanel } from './ConnectPanel'
 import { HoverControls } from './HoverControls'
+import { Pill, type PillApi } from './Pill'
 import { Ring, type RingHandle } from './Ring'
 import { RingTooltip } from './RingTooltip'
+import { Sparks, type SparksApi } from './Sparks'
 import { WidgetMenu } from './WidgetMenu'
 
 interface Props {
@@ -19,6 +36,18 @@ interface Props {
   onPrefs: (p: Partial<Prefs>) => void
   /** Ring DOM handles [session, weekly], for the reset animations (Task 14). */
   ringRefs?: { session: RefObject<RingHandle | null>; weekly: RefObject<RingHandle | null> }
+}
+
+/**
+ * A ring never stays locked longer than this, even if its animation stalls (window minimized,
+ * frames paused): a bit more than the longest lock (surprise, about 3.05 s).
+ */
+const LOCK_SAFETY_MS = 4500
+
+interface Batch {
+  seq: number
+  events: ResetEvent[]
+  pill: PillSpec | null
 }
 
 interface Size {
@@ -73,7 +102,8 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
   const [menuOpen, setMenuOpen] = useState(false)
   const ownSession = useRef<RingHandle>(null)
   const ownWeekly = useRef<RingHandle>(null)
-  const refs = ringRefs ?? { session: ownSession, weekly: ownWeekly }
+  const sessionRef = ringRefs?.session ?? ownSession
+  const weeklyRef = ringRefs?.weekly ?? ownWeekly
 
   const connected = state.conn.state === 'connected' && state.rings !== null
   const err = connected && state.error !== null
@@ -90,6 +120,69 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
   const [menuExtra, setMenuExtra] = useState(0)
   const extra = Math.max(tipExtra, menuExtra)
   const { offset, settle, measure } = useWindowFit(extra)
+
+  // ---- reset animations (Task 14) ----
+  // A new resetSeq locks the affected rings in the same render that brings the new values, so
+  // they keep showing the old ones until their animation hands over (no flash of the new view).
+  const [seenSeq, setSeenSeq] = useState(state.resetSeq)
+  const [locks, setLocks] = useState<Locks>({})
+  const [batch, setBatch] = useState<Batch | null>(null)
+  if (state.resetSeq !== seenSeq) {
+    setSeenSeq(state.resetSeq)
+    if (connected && state.resets.length > 0) {
+      setLocks((l) => lockKeys(l, state.resets.map((e) => e.key), state.resetSeq))
+      setBatch({ seq: state.resetSeq, events: state.resets, pill: pillFor(state.resets, lang) })
+    }
+  }
+  // Rings gone (disconnect, expired): nothing may stay locked for when they come back.
+  if (!connected && Object.keys(locks).length > 0) setLocks({})
+  // Mirror of `locks` for the async callbacks: which batch owns each ring right now.
+  const owner = useRef<Locks>({})
+  const pill = useRef<PillApi>(null)
+  const sparks = useRef<SparksApi>(null)
+
+  useLayoutEffect(() => {
+    const el = rootRef.current
+    if (!batch || !el) return
+    const { seq, events, pill: spec } = batch
+    owner.current = lockKeys(owner.current, events.map((e) => e.key), seq)
+    let shown = false
+    const showPill = () => {
+      if (shown || !spec) return
+      shown = true
+      pill.current?.show(spec.kind, spec.text, spec.holdMs)
+    }
+    for (const ev of events) {
+      const h = (ev.key === 'session' ? sessionRef : weeklyRef).current
+      let safety: ReturnType<typeof setTimeout> | undefined
+      const done = () => {
+        clearTimeout(safety)
+        if (owner.current[ev.key] !== seq) return // a newer batch owns this ring now
+        owner.current = release(owner.current, ev.key, seq)
+        stopStage(h?.svg ?? null)
+        h?.paint()
+        flushSync(() => setLocks((l) => release(l, ev.key, seq)))
+      }
+      if (!h) {
+        done()
+        continue
+      }
+      safety = setTimeout(done, LOCK_SAFETY_MS)
+      const p =
+        ev.kind === 'planned'
+          ? playPlanned(h, ev.fromUsed, showPill)
+          : playSurprise(h, el, ev.fromUsed, sparks.current, showPill)
+      void p.then(done, done)
+    }
+    // No cleanup: each ring's own promise or safety timer releases it, and a newer batch takes
+    // over through `owner`. The ring refs are stable: only a new batch starts animations.
+  }, [batch, sessionRef, weeklyRef])
+
+  useEffect(() => {
+    if (connected) return
+    for (const h of [sessionRef.current, weeklyRef.current]) stopStage(h?.svg ?? null)
+    owner.current = {}
+  }, [connected, sessionRef, weeklyRef])
   const setRoot = useCallback(
     (el: HTMLDivElement | null) => {
       rootRef.current = el
@@ -164,6 +257,9 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
       render={root}
     >
       <HoverControls lang={lang} onLang={onLang} showRefresh={connected} />
+      <div className="glow" aria-hidden />
+      <Sparks ref={sparks} />
+      <Pill ref={pill} />
       {connected ? (
         <>
           <div className="rings">
@@ -177,7 +273,14 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
                 disabled={menuOpen || dragging}
                 onPopupHeight={onTipHeight}
               >
-                <Ring view={r} lang={lang} now={now} ref={r.key === 'session' ? refs.session : refs.weekly} />
+                <Ring
+                  view={r}
+                  lang={lang}
+                  now={now}
+                  held={locks[r.key] !== undefined}
+                  index={r.key === 'session' ? 0 : 1}
+                  ref={r.key === 'session' ? sessionRef : weeklyRef}
+                />
               </RingTooltip>
             ))}
           </div>
