@@ -1,0 +1,623 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Usage widget prototype</title>
+<style>:root{--bg-primary:#f5f5f7;--bg-secondary:#fff;--bg-tertiary:#e5e5e7;--border:#d1d1d6;--text-primary:#1d1d1f;--text-secondary:#86868b;--accent:#0071e3;--error:#ff3b30}
+@media (prefers-color-scheme:dark){:root{--bg-primary:#1d1d1f;--bg-secondary:#2d2d2f;--bg-tertiary:#3d3d3f;--border:#424245;--text-primary:#f5f5f7;--accent:#0a84ff}}
+*{box-sizing:border-box;margin:0;padding:0}body{font-family:system-ui,sans-serif;background:var(--bg-primary);color:var(--text-primary);padding:2rem;line-height:1.5}h2{font-size:1.5rem;margin-bottom:.5rem}.subtitle{color:var(--text-secondary);margin-bottom:1.5rem}</style></head><body>
+<style>
+  .pt { --green:#34d399; --red:#fb7185; --blue:#7dd3fc; --gold:#facc15; --ink:#e7e7ea; --mute:#8b8b95; --dim:#5f5f69; }
+  .pt .layout { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  /* ---------- desktop ---------- */
+  .dt { position: relative; flex: 1 1 640px; min-width: 340px; height: 600px; border-radius: 12px; overflow: hidden; user-select: none;
+    background: radial-gradient(120% 90% at 10% 0%, #3b2a6b 0%, transparent 55%), radial-gradient(90% 80% at 100% 100%, #0f4c5c 0%, transparent 60%), linear-gradient(135deg,#17171f,#0d0d12); }
+  .dt::before { content:""; position:absolute; width:260px; height:260px; border-radius:50%; background:#d97757; filter: blur(80px); opacity:.3; left:30%; top:30%; }
+  .icons { position: absolute; left: 14px; top: 14px; display: grid; gap: 14px; color: #ddd; font: 11px system-ui; text-align: center; }
+  .icons div span { display:block; width: 38px; height: 34px; margin: 0 auto 4px; border-radius: 8px; background: rgba(255,255,255,.12); }
+  .appico { cursor: default; border-radius: 6px; padding: 2px; } .appico:hover { background: rgba(255,255,255,.08); }
+  .appico span { display: grid !important; place-items: center; background: rgba(255,255,255,.08) !important; }
+  .tb.app { transition: width .3s cubic-bezier(.2,.9,.3,1.2), opacity .25s, margin .3s; overflow: hidden; }
+  .tb.app.gone { width: 0; opacity: 0; margin: 0 -3px; pointer-events: none; }
+  .taskbar { position: absolute; left: 0; right: 0; bottom: 0; height: 44px; background: rgba(28,28,34,.82); backdrop-filter: blur(20px); border-top: 1px solid rgba(255,255,255,.07);
+    display: flex; align-items: center; justify-content: center; gap: 6px; z-index: 20; }
+  .tb { width: 34px; height: 34px; border-radius: 6px; display: grid; place-items: center; position: relative; }
+  .tb.app { cursor: pointer; } .tb.app:hover { background: rgba(255,255,255,.08); }
+  .tb.app::after { content:""; position:absolute; bottom:2px; width:6px; height:3px; border-radius:2px; background:#8b8b95; }
+  .tb.app.on::after { width: 14px; background: #f0b38f; }
+  .tb i { display:block; width: 20px; height: 20px; border-radius: 5px; background: rgba(255,255,255,.18); }
+  .clock { position: absolute; right: 12px; color: #e7e7ea; font: 11.5px/1.25 "Segoe UI Variable", system-ui; text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* ---------- widget ---------- */
+  .wd { position: absolute; z-index: 10; color: var(--ink); font: 12px/1.2 Inter, "Segoe UI Variable", system-ui, sans-serif; cursor: grab;
+    background: rgba(22,22,28,.66); backdrop-filter: blur(18px) saturate(1.5); -webkit-backdrop-filter: blur(18px) saturate(1.5);
+    border: 1px solid rgba(255,255,255,.09); border-radius: 16px; box-shadow: 0 12px 34px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.06);
+    transition: box-shadow .4s, opacity .3s, transform .3s; }
+  .wd.dragging { cursor: grabbing; }
+  .wd.hidden { opacity: 0; transform: scale(.92); pointer-events: none; }
+  .wd.warn { box-shadow: 0 0 0 1px rgba(251,113,133,.45), 0 0 26px rgba(251,113,133,.25), 0 12px 34px rgba(0,0,0,.4); }
+  .rings { display: flex; gap: 6px; padding: 24px 14px 22px; }
+  .rg { width: 104px; text-align: center; position: relative; }
+  .rg svg { display: block; margin: 0 auto 6px; overflow: visible; }
+  .rg .name { font-size: 11px; font-weight: 650; color: #c9c9d1; white-space: nowrap; }
+  .rg .when { font-size: 10.5px; color: var(--ink); margin-top: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rg .when.hot { color: #fda4af; }
+  .rg .ok { color: var(--green); font-weight: 800; opacity: 0; display: inline-block; position: absolute; margin-left: 3px; } /* out of flow: doesn't shift the centered title */
+  .arc { transition: stroke-dashoffset .8s cubic-bezier(.2,.9,.25,1.05), stroke .4s; }
+  .tick { transition: transform .8s cubic-bezier(.2,.9,.25,1.05), opacity .3s; transform-box: view-box; transform-origin: 32px 32px; }
+  .num { transform-box: fill-box; transform-origin: center; transition: fill .4s; }
+  .arc.pulse { animation: pu 1.6s ease-in-out infinite; } @keyframes pu { 50% { opacity: .45; } }
+  .wd.err .rings { filter: grayscale(1); opacity: .5; }
+  .foot { display: none; padding: 0 12px 9px; font-size: 10.5px; text-align: center; }
+  .wd.err .foot { display: block; }
+  .foot .msg { white-space: nowrap; color: #fda4af; }
+  .ctl { position: absolute; top: 4px; right: 5px; z-index: 2; display: flex; gap: 2px; opacity: 0; transition: opacity .2s; }
+  .wd:hover .ctl, .wd:hover .rf { opacity: 1; }
+  .ib { width: 22px; height: 18px; display: grid; place-items: center; border-radius: 5px; color: var(--mute); cursor: pointer; transition: background .12s, color .12s; }
+  .ib:hover { background: rgba(255,255,255,.09); color: #fff; }
+  .ib.close:hover { background: #e81123; color: #fff; }
+  .ib svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .rf { position: absolute; bottom: 5px; right: 5px; z-index: 2; opacity: 0; transition: opacity .2s; }
+  .flags { position: absolute; top: 6px; left: 8px; z-index: 2; display: flex; gap: 5px; opacity: 0; transition: opacity .2s; }
+  .wd:hover .flags { opacity: 1; }
+  .flags svg { display: block; width: 16px; height: 11px; border-radius: 2px; cursor: pointer; opacity: .4; outline: 1px solid rgba(255,255,255,.15); transition: opacity .15s, transform .15s; }
+  .flags svg:hover { opacity: .8; transform: scale(1.1); }
+  .flags svg.on { opacity: 1; outline: 1.5px solid rgba(255,255,255,.75); }
+  .tip .tt { font-weight: 650; color: #fff; padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,.1); }
+  .tip .tt span { color: #8b8b95; font-weight: 400; }
+  .st { padding: 26px 18px 14px; width: 242px; }
+  .st h4 { font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+  .st p { color: var(--mute); font-size: 11px; line-height: 1.45; margin-bottom: 10px; }
+  .btn-c { width: 100%; padding: 9px; border-radius: 10px; border: 0; font: 600 12.5px Inter, system-ui; color: #1a1a1a; background: linear-gradient(180deg,#f3c3a9,#d97757); cursor: pointer; box-shadow: 0 6px 18px rgba(217,119,87,.35); }
+  .btn-c:hover { filter: brightness(1.06); }
+  .lnk { color: #f0b38f; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+  .spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; animation: sp .8s linear infinite; display: inline-block; vertical-align: -2px; margin-right: 6px; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .chip { position: absolute; left: 50%; top: -14px; transform: translateX(-50%); white-space: nowrap; font-size: 10.5px; font-weight: 650; padding: 4px 10px; border-radius: 99px; opacity: 0; pointer-events: none; z-index: 3; }
+  .chip.calm { background: rgba(20,40,32,.9); color: #a7f3d0; border: 1px solid rgba(52,211,153,.45); }
+  .chip.gold { background: rgba(48,40,10,.92); color: #fde68a; border: 1px solid rgba(250,204,21,.55); box-shadow: 0 0 18px rgba(250,204,21,.35); }
+  .spark { position: absolute; width: 5px; height: 5px; border-radius: 50%; pointer-events: none; z-index: 4; }
+  .tip { position: absolute; z-index: 30; pointer-events: none; background: rgba(14,14,18,.94); border: 1px solid rgba(255,255,255,.1); color: #ddd; font: 11px/1.5 Inter, system-ui; padding: 7px 10px; border-radius: 9px; white-space: nowrap; opacity: 0; transition: opacity .15s; }
+  .tip b { color: #fff; }
+  .menu { position: absolute; z-index: 40; min-width: 200px; padding: 5px; border-radius: 10px; background: rgba(32,32,38,.96); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 16px 40px rgba(0,0,0,.5); font: 12px Inter, "Segoe UI Variable", system-ui; color: #e7e7ea; display: none; }
+  .menu .it { padding: 6px 10px 6px 26px; border-radius: 6px; cursor: pointer; position: relative; white-space: nowrap; }
+  .menu .it:hover { background: rgba(255,255,255,.08); }
+  .menu .it.chk::before { content: "✓"; position: absolute; left: 9px; color: #f0b38f; }
+  .menu .hd { padding: 6px 10px 2px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+  .menu .sep { height: 1px; background: rgba(255,255,255,.08); margin: 4px 2px; }
+  .menu .it.danger { color: #fda4af; }
+
+  /* ---------- fake browser ---------- */
+  .br { position: absolute; z-index: 15; left: 70px; top: 60px; width: 420px; height: 300px; border-radius: 10px; overflow: hidden; background: #f7f7f8; box-shadow: 0 24px 60px rgba(0,0,0,.55); display: none; font: 12px system-ui; color: #222; }
+  .br .bar { height: 34px; background: #e6e6ea; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+  .br .url { flex: 1; background: #fff; border-radius: 99px; padding: 4px 12px; color: #555; font-size: 11.5px; }
+  .br .x { cursor: pointer; padding: 2px 6px; border-radius: 4px; } .br .x:hover { background: #d4d4d8; }
+  .br .pg { height: calc(100% - 34px); display: grid; place-items: center; text-align: center; }
+  .br .pg h5 { font-size: 17px; font-weight: 600; margin-bottom: 6px; font-family: Georgia, serif; }
+  .br .pg p { color: #666; font-size: 12px; margin-bottom: 12px; }
+  .br .pg button { padding: 8px 16px; border-radius: 8px; border: 1px solid #ccc; background: #fff; font: 600 12px system-ui; cursor: pointer; }
+  .br .pg button.pri { background: #1f1f1f; color: #fff; border-color: #1f1f1f; }
+  .br .badge { font-size: 10px; padding: 2px 7px; border-radius: 99px; background: #ddd; color: #444; }
+
+  /* ---------- control panel ---------- */
+  .cp { flex: 0 1 300px; min-width: 280px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 14px; font-size: .82rem; }
+  .cp h4 { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary); margin: 12px 0 6px; }
+  .cp h4:first-child { margin-top: 0; }
+  .cp .g { display: flex; flex-wrap: wrap; gap: 5px; }
+  .cp button { font: inherit; font-size: .78rem; padding: .3rem .55rem; border-radius: 7px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-primary); cursor: pointer; }
+  .cp button:hover { border-color: var(--accent); }
+  .cp button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .cp .big { font-size: 1.25rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .cp .log { height: 150px; overflow: auto; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font: 11px/1.5 ui-monospace, Consolas, monospace; color: var(--text-secondary); }
+  .cp .log .ev { color: var(--text-primary); } .cp .log .gd { color: #b45309; } .cp .log .bd { color: var(--error); }
+  .cp .hint { color: var(--text-secondary); font-size: .76rem; margin-top: 4px; }
+</style>
+
+<div class="pt">
+  <h2>Clickable prototype</h2>
+  <p class="subtitle">Fake data, real behavior. The widget polls every 30 s of simulated time and detects resets the way the real app will. <b>Try:</b> drag it, hover a ring, right-click it, click ↻, and use the panel on the right to speed up time and trigger events.</p>
+
+  <div class="layout">
+    <div class="dt" id="dt">
+      <div class="icons"><div><span></span>Projects</div><div><span></span>Notes</div><div><span></span>Recycle Bin</div>
+        <div class="appico" id="appico" title="Double-click to launch"><span><svg width="26" height="26" viewBox="0 0 64 64"><circle cx="32" cy="32" r="23" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="8"/><circle cx="32" cy="32" r="23" fill="none" stroke="#f0b38f" stroke-width="8" stroke-linecap="round" transform="rotate(-90 32 32)" stroke-dasharray="144.5" stroke-dashoffset="55"/></svg></span>Claude Usage</div></div>
+
+      <div class="wd" id="wd" style="right:16px;top:16px">
+        <div class="chip" id="chip"></div>
+        <div class="ctl">
+          <span class="ib" id="bmin"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span>
+          <span class="ib close" id="bclose"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+        </div>
+        <div class="flags">
+          <svg data-lang="fr" viewBox="0 0 3 2" title="Français"><rect width="1" height="2" fill="#0055A4"/><rect x="1" width="1" height="2" fill="#fff"/><rect x="2" width="1" height="2" fill="#EF4135"/></svg>
+          <svg data-lang="en" viewBox="0 0 60 30" title="English (UK)"><clipPath id="uk-t"><path d="M30,15 h30 v15 z v15 h-30 z h-30 v-15 z v-15 h30 z"/></clipPath><path d="M0,0 v30 h60 v-30 z" fill="#012169"/><path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" stroke-width="6"/><path d="M0,0 L60,30 M60,0 L0,30" clip-path="url(#uk-t)" stroke="#C8102E" stroke-width="4"/><path d="M30,0 v30 M0,15 h60" stroke="#fff" stroke-width="10"/><path d="M30,0 v30 M0,15 h60" stroke="#C8102E" stroke-width="6"/></svg>
+        </div>
+        <div id="wbody"></div>
+      </div>
+      <div class="tip" id="tip"></div>
+      <div class="menu" id="menu"></div>
+
+      <div class="br" id="br">
+        <div class="bar"><span class="badge" id="brname">Firefox</span><div class="url" id="brurl">claude.ai/login</div><span class="x" id="brx">✕</span></div>
+        <div class="pg" id="brpg"></div>
+      </div>
+
+      <div class="taskbar">
+        <div class="tb"><i></i></div><div class="tb"><i></i></div><div class="tb"><i></i></div>
+        <div class="tb app on" id="tbapp" title="Claude usage widget"><svg width="22" height="22" viewBox="0 0 64 64"><circle cx="32" cy="32" r="23" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="8"/><circle cx="32" cy="32" r="23" fill="none" stroke="#f0b38f" stroke-width="8" stroke-linecap="round" transform="rotate(-90 32 32)" stroke-dasharray="144.5" stroke-dashoffset="55"/></svg></div>
+        <div class="clock" id="clock"></div>
+      </div>
+    </div>
+
+    <div class="cp">
+      <h4>Simulated time</h4>
+      <div class="big" id="cpclock"></div>
+      <div class="g" id="speeds" style="margin-top:6px"></div>
+      <div class="g" style="margin-top:5px"><button data-a="jump1h">+1 hour</button><button data-a="jumpS">→ just before 5h reset</button><button data-a="jump1d">+1 day</button></div>
+
+      <h4>Your usage</h4>
+      <div class="g" id="rates"></div>
+      <div class="hint">How fast you're "using Claude" while time runs.</div>
+
+      <h4>Trigger events</h4>
+      <div class="g">
+        <button data-a="surpriseS">★ Surprise reset (5h)</button>
+        <button data-a="surpriseW">★ Surprise reset (week)</button>
+        <button data-a="surpriseB">★ Both</button>
+        <button data-a="near">Go to 92%</button>
+        <button data-a="err">Network down ×3</button>
+        <button data-a="expire">Session expires</button>
+        <button data-a="disconnect">Start over (Connect)</button>
+      </div>
+
+      <h4>Setup</h4>
+      <div class="g" id="browsers"></div>
+      <div class="g" style="margin-top:5px" id="orgsN"></div>
+
+      <h4>What the app saw</h4>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+  <div style="height:2rem"></div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const C = 2 * Math.PI * 23;
+  const SPRING = 'linear(0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017, 1.077, 1.121, 1.149 24.3%, 1.159, 1.163, 1.161, 1.154 29.9%, 1.129 32.8%, 1.051 39.6%, 1.017 43.1%, 0.991, 0.977 51%, 0.974 53.8%, 0.975 57.1%, 0.997 69.8%, 1.003 76.9%, 1.004 83.8%, 1)';
+  const COL = { red: '#fb7185', green: '#34d399', blue: '#7dd3fc', gold: '#facc15', dim: '#5f5f69' };
+  const MIN = 60e3, H = 60 * MIN, D = 24 * H, POLL = 30e3;
+  const WIN = { s: 5 * H, w: 7 * D };
+  const NAMES = { s: '5-hour session', w: 'Weekly' }; // log panel stays English
+  // ---------------- i18n ----------------
+  const I18N = {
+    en: {
+      loc: 'en-GB', s: '5-hour session', w: 'Weekly', idle: 'idle', resets: t => 'resets ' + t, resetsDay: t => 'resets ' + t, resetsIn: d => 'resets in ' + d, limit: d => 'limit · back in ' + d,
+      used: p => `${p}% used`, expected: p => `expected ${p}%`, ahead: n => `${n} pts ahead of pace`, room: n => `${n} pts of room`, onTrack: 'on track',
+      resetsLong: (t, d) => `Resets ${t} (in ${d})`, noSession: 'no session running', startsNext: 'Starts with your next message', ago: d => `updated ${d} ago`,
+      err: d => `⚠ claude.ai not responding · retry in ${d}`, refresh: 'Refresh now',
+      chipS: '✓ Session reset · fresh 5 hours', chipW: '✓ New week · weekly limit reset', surprise: d => `★ Surprise reset · ${d} early`,
+      cTitle: 'See your Claude limits live', cText: 'Uses your claude.ai login in your browser. Nothing to copy or paste.', cBtn: 'Connect to claude.ai',
+      wTitle: 'Waiting for your browser…', wChrome: 'Log in to claude.ai in Chrome.<br>Chrome needs a small helper: <span class="lnk" id="bext">add the extension</span> (once).',
+      wOther: b => `Log in to claude.ai in ${b} if you aren't already. We'll pick it up automatically.`, again: 'Open claude.ai again', cancel: 'Cancel',
+      eTitle: 'Session expired', eText: 'Your claude.ai login ran out. Reconnect to keep tracking.', eBtn: 'Reconnect',
+      mRefresh: 'Refresh now', mOrg: 'Organization', mTop: 'Always on top', mBoot: 'Start with Windows', mDisc: 'Disconnect', mQuit: 'Quit',
+    },
+    fr: {
+      loc: 'fr-FR', s: 'Session 5 h', w: 'Hebdomadaire', idle: 'inactive', resets: t => 'reset à ' + t, resetsDay: t => 'reset ' + t, resetsIn: d => 'reset dans ' + d, limit: d => 'limite · retour dans ' + d,
+      used: p => `${p} % utilisé`, expected: p => `attendu ${p} %`, ahead: n => `${n} pts d'avance sur le rythme`, room: n => `${n} pts de marge`, onTrack: 'dans le rythme',
+      resetsLong: (t, d) => `Reset ${/^\d/.test(t) ? 'à ' : ''}${t} (dans ${d})`, noSession: 'aucune session en cours', startsNext: 'Démarre avec ton prochain message', ago: d => `mis à jour il y a ${d}`,
+      err: d => `⚠ claude.ai ne répond pas · nouvel essai dans ${d}`, refresh: 'Actualiser',
+      chipS: '✓ Session remise à zéro · 5 h toutes neuves', chipW: '✓ Nouvelle semaine · limite hebdo remise à zéro', surprise: d => `★ Reset surprise · ${d} en avance`,
+      cTitle: 'Tes limites Claude en direct', cText: 'Utilise ta connexion claude.ai dans ton navigateur. Rien à copier-coller.', cBtn: 'Se connecter à claude.ai',
+      wTitle: 'En attente de ton navigateur…', wChrome: 'Connecte-toi à claude.ai dans Chrome.<br>Chrome a besoin d\'un petit assistant : <span class="lnk" id="bext">ajoute l\'extension</span> (une seule fois).',
+      wOther: b => `Connecte-toi à claude.ai dans ${b} si ce n'est pas déjà fait. On le détecte tout seul.`, again: 'Rouvrir claude.ai', cancel: 'Annuler',
+      eTitle: 'Session expirée', eText: 'Ta connexion claude.ai a expiré. Reconnecte-toi pour continuer.', eBtn: 'Se reconnecter',
+      mRefresh: 'Actualiser', mOrg: 'Organisation', mTop: 'Toujours au premier plan', mBoot: 'Lancer au démarrage de Windows', mDisc: 'Se déconnecter', mQuit: 'Quitter',
+    },
+  };
+  let LANG = (navigator.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
+  const T = () => I18N[LANG];
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const A = (el, kf, o) => el.animate(kf, Object.assign({ fill: 'forwards', easing: 'cubic-bezier(.2,.8,.2,1)' }, o)).finished;
+
+  // ---------------- simulated world ----------------
+  const t0 = new Date(2026, 10, 3, 11, 29, 0).getTime();
+  const S = {
+    sim: t0, speed: 60, rate: 1, browser: 'firefox', ext: false, nOrgs: 2,
+    conn: 'connected', // connected | disconnected | waiting | expired
+    visible: true, failNext: 0, backoff: 0, nextPoll: t0, lastOk: t0, err: false, expireNext: false,
+    org: 'max',
+    truth: {
+      max: { name: 'Max plan · Personal', s: { used: 62, resetsAt: new Date(2026, 10, 3, 14, 0).getTime() }, w: { used: 34, resetsAt: new Date(2026, 10, 6, 23, 59).getTime() } },
+      team: { name: 'Team · Acme Studio', s: { used: 18, resetsAt: new Date(2026, 10, 3, 15, 0).getTime() }, w: { used: 51, resetsAt: new Date(2026, 10, 8, 9, 0).getTime() } },
+    },
+    shown: null, lock: { s: false, w: false },
+  };
+  const RATES = [['Idle', 0], ['Light', .4], ['Normal', 1], ['Heavy', 2.5]];
+  const SPEEDS = [['1×', 1], ['60×', 60], ['600×', 600], ['3600×', 3600]];
+
+  const fmtT = t => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const fmtD = t => new Date(t).toLocaleDateString(T().loc, { weekday: 'short' }) + ' ' + fmtT(t);
+  const fmtDur = ms => { ms = Math.max(0, ms); if (ms < MIN) return Math.ceil(ms / 1000) + ' s';
+    if (ms >= D) { const d = Math.floor(ms / D), hh = Math.floor((ms % D) / H); return LANG === 'fr' ? `${d} j ${hh} h` : `${d}d ${hh}h`; }
+    const h = Math.floor(ms / H), m = Math.round((ms % H) / MIN); return h ? `${h}h${String(m).padStart(2, '0')}` : `${m} min`; };
+  const clone = o => JSON.parse(JSON.stringify(o));
+
+  function log(msg, cls = '') {
+    const el = document.createElement('div'); if (cls) el.className = cls;
+    el.textContent = new Date(S.sim).toLocaleTimeString('en-GB') + '  ' + msg;
+    $('log').prepend(el);
+    while ($('log').childNodes.length > 80) $('log').lastChild.remove();
+  }
+
+  function advanceTruth(dt) {
+    const mins = dt / MIN;
+    for (const k of Object.keys(S.truth)) {
+      const o = S.truth[k], active = k === S.org && S.rate > 0;
+      // scheduled resets
+      if (o.s.resetsAt && S.sim >= o.s.resetsAt) o.s = { used: 0, resetsAt: null };
+      if (S.sim >= o.w.resetsAt) o.w = { used: 0, resetsAt: o.w.resetsAt + 7 * D };
+      if (!active) continue;
+      if (o.s.used >= 100 || o.w.used >= 100) continue; // blocked
+      if (!o.s.resetsAt) { const st = new Date(S.sim); st.setMinutes(0, 0, 0); o.s.resetsAt = st.getTime() + 5 * H; }
+      o.s.used = Math.min(100, o.s.used + .35 * S.rate * mins);
+      o.w.used = Math.min(100, o.w.used + .35 * S.rate * mins / 11);
+    }
+  }
+
+  // ---------------- polling + reset detection ----------------
+  function poll(manual) {
+    if (S.conn !== 'connected') return;
+    if (S.expireNext) { S.expireNext = false; S.conn = 'expired'; log('401 → session expired', 'bd'); render(); return; }
+    if (S.failNext > 0) {
+      S.failNext--; S.err = true; S.backoff = Math.min(S.backoff ? S.backoff * 2 : 60e3, 10 * MIN);
+      S.nextPoll = S.sim + S.backoff;
+      log(`fetch failed · retry in ${fmtDur(S.backoff)}`, 'bd'); render(); return;
+    }
+    if (S.err) log('back online', 'ev');
+    S.err = false; S.backoff = 0; S.nextPoll = S.sim + POLL; S.lastOk = S.sim;
+    const data = clone(S.truth[S.org]);
+    const prev = S.shown;
+    S.shown = data;
+    if (manual) log('manual refresh');
+    if (prev) for (const k of ['s', 'w']) {
+      const p = prev[k], c = data[k];
+      if (p.used >= 1 && c.used < p.used - .5) {
+        const planned = p.resetsAt && S.sim >= p.resetsAt - MIN;
+        if (planned) { log(`${NAMES[k]}: planned reset detected (${Math.round(p.used)}% → ${Math.round(c.used)}%)`, 'ev'); animPlanned(k, p); }
+        else { const early = p.resetsAt - S.sim; log(`${NAMES[k]}: SURPRISE reset · ${fmtDur(early)} early`, 'gd'); animSurprise(k, p, early); }
+      }
+    }
+    render();
+  }
+
+  // ---------------- rendering ----------------
+  const ringHTML = k => `
+    <div class="rg" data-k="${k}">
+      <svg width="64" height="64" viewBox="0 0 64 64">
+        <circle cx="32" cy="32" r="23" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="6"/>
+        <circle class="arc" cx="32" cy="32" r="23" fill="none" stroke-width="6" stroke-linecap="round" transform="rotate(-90 32 32)" stroke-dasharray="${C}" stroke-dashoffset="${C}"/>
+        <circle class="glint" cx="32" cy="32" r="23" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" transform="rotate(-90 32 32)" stroke-dasharray="9 ${C}" stroke-dashoffset="9" opacity="0" style="filter:blur(1.5px)"/>
+        <line class="tick" x1="32" y1="3" x2="32" y2="12" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+        <text class="num" x="32" y="36.5" text-anchor="middle" font-size="13.5" font-weight="750" font-family="Inter, Segoe UI, system-ui">0<tspan font-size="9" dx="1">%</tspan></text>
+      </svg>
+      <div class="name">${T()[k]}<span class="ok">✓</span></div>
+      <div class="when">—</div>
+    </div>`;
+  let mode = null;
+  const R = {};
+  function setMode(m) {
+    if (mode === m) return; mode = m;
+    const b = $('wbody');
+    if (m === 'rings') {
+      b.innerHTML = `<span class="ib rf" id="rf" title="${T().refresh}"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></span><div class="rings">${ringHTML('s')}${ringHTML('w')}</div><div class="foot"><span class="msg" id="fmsg"></span></div>`;
+      for (const k of ['s', 'w']) { const r = b.querySelector(`.rg[data-k="${k}"]`); R[k] = { r, svg: r.querySelector('svg'), arc: r.querySelector('.arc'), glint: r.querySelector('.glint'), tick: r.querySelector('.tick'), num: r.querySelector('.num'), ok: r.querySelector('.ok'), when: r.querySelector('.when') }; }
+      $('rf').onclick = e => {
+        e.stopPropagation();
+        const btn = $('rf'), ic = btn.querySelector('svg');
+        if (ic.getAnimations().length) return;
+        // press + one spring-eased turn (overshoots slightly, then settles)
+        btn.animate([{ transform: 'scale(1)' }, { transform: 'scale(.86)', offset: .25 }, { transform: 'scale(1)' }], { duration: 500, easing: SPRING });
+        ic.animate([{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }], { duration: 900, easing: SPRING });
+        setTimeout(() => poll(true), 350);
+      };
+      b.querySelectorAll('.rg').forEach(r => { r.onmouseenter = () => showTip(r.dataset.k); r.onmouseleave = hideTip; });
+      requestAnimationFrame(() => paintRings(true));
+    } else if (m === 'disconnected') {
+      b.innerHTML = `<div class="st"><h4>${T().cTitle}</h4><p>${T().cText}</p><button class="btn-c" id="bconn">${T().cBtn}</button></div>`;
+      $('bconn').onclick = e => { e.stopPropagation(); startConnect(); };
+    } else if (m === 'waiting') {
+      b.innerHTML = `<div class="st"><h4><span class="spin"></span>${T().wTitle}</h4><p id="wmsg"></p><div style="display:flex;justify-content:space-between;font-size:11px"><span class="lnk" id="bagain">${T().again}</span><span class="lnk" id="bcancel">${T().cancel}</span></div></div>`;
+      $('bagain').onclick = e => { e.stopPropagation(); openBrowser('login'); };
+      $('bcancel').onclick = e => { e.stopPropagation(); closeBrowser(); S.conn = 'disconnected'; render(); };
+    } else if (m === 'expired') {
+      b.innerHTML = `<div class="st"><h4>${T().eTitle}</h4><p>${T().eText}</p><button class="btn-c" id="brec">${T().eBtn}</button></div>`;
+      $('brec').onclick = e => { e.stopPropagation(); startConnect(); };
+    }
+  }
+  function ringView(k) {
+    const d = S.shown[k];
+    const idle = k === 's' && !d.resetsAt;
+    const used = d.used;
+    const exp = d.resetsAt ? Math.max(0, Math.min(100, (S.sim - (d.resetsAt - WIN[k])) / WIN[k] * 100)) : null;
+    let color = COL.green;
+    if (idle) color = COL.dim; else if (exp != null) { const diff = used - exp; color = diff > 5 ? COL.red : diff < -5 ? COL.blue : COL.green; }
+    let when, hot = false;
+    if (idle) when = T().idle;
+    else when = k === 's' || d.resetsAt - S.sim < D ? T().resets(fmtT(d.resetsAt)) : T().resetsDay(fmtD(d.resetsAt));
+    return { used, exp, color, when, hot, idle };
+  }
+  function paintRings(force) {
+    if (mode !== 'rings' || !S.shown) return;
+    let warn = false;
+    for (const k of ['s', 'w']) {
+      const v = ringView(k), el = R[k];
+      if (v.used >= 90) warn = true;
+      if (S.lock[k]) continue;
+      el.arc.setAttribute('stroke', v.color);
+      el.arc.setAttribute('stroke-dashoffset', C * (1 - Math.min(100, v.used) / 100));
+      el.tick.style.opacity = v.exp == null ? 0 : .95;
+      el.tick.style.transform = `rotate(${(v.exp || 0) * 3.6}deg)`;
+      el.num.firstChild.nodeValue = Math.floor(v.used);
+      el.num.setAttribute('fill', v.idle ? '#8b8b95' : v.color);
+      el.when.textContent = v.when; el.when.classList.toggle('hot', v.hot);
+    }
+    $('wd').classList.toggle('warn', warn && !S.err);
+    $('wd').classList.toggle('err', S.err);
+    const fm = $('fmsg');
+    fm.textContent = S.err ? T().err(fmtDur(S.nextPoll - S.sim)) : '';
+  }
+  const agoTxt = () => T().ago(fmtDur(Math.max(1000, S.sim - S.lastOk)));
+  function render() {
+    if (S.conn === 'connected' && !S.shown) { poll(); return; }
+    setMode(S.conn === 'connected' ? 'rings' : S.conn);
+    if (S.conn === 'waiting') {
+      const m = $('wmsg');
+      if (m) m.innerHTML = S.browser === 'chrome' && !S.ext ? T().wChrome : T().wOther(S.browser === 'chrome' ? 'Chrome' : 'Firefox');
+      const be = $('bext'); if (be) be.onclick = e => { e.stopPropagation(); openBrowser('store'); };
+    }
+    paintRings();
+    $('tbapp').classList.toggle('on', S.visible);
+  }
+
+  // ---------------- tooltip ----------------
+  let tipK = null;
+  function showTip(k) { tipK = k; updTip(); $('tip').style.opacity = 1; }
+  function hideTip() { tipK = null; $('tip').style.opacity = 0; }
+  function updTip() {
+    if (!tipK || mode !== 'rings') return;
+    const v = ringView(tipK), d = S.shown[tipK];
+    let pace = '';
+    const L = T();
+    if (v.exp != null) { const diff = Math.round(v.used - v.exp); pace = diff > 5 ? `<b style="color:${COL.red}">${L.ahead(diff)}</b>` : diff < -5 ? `<b style="color:${COL.blue}">${L.room(-diff)}</b>` : `<b style="color:${COL.green}">${L.onTrack}</b>`; }
+    $('tip').innerHTML = `<div class="tt">${S.truth[S.org].name} <span>· ${agoTxt()}</span></div>` + (v.idle ? `<b>${L[tipK]}</b> · ${L.noSession}<br>${L.startsNext}` :
+      `<b>${L[tipK]}</b> · ${L.used(Math.floor(v.used))}${v.exp != null ? ` · ${L.expected(Math.round(v.exp))}` : ''}<br>${pace}<br>${L.resetsLong(tipK === 's' ? fmtT(d.resetsAt) : fmtD(d.resetsAt), fmtDur(d.resetsAt - S.sim))}`);
+    const dr = $('dt').getBoundingClientRect(), rr = R[tipK].r.getBoundingClientRect(), tr = $('tip').getBoundingClientRect();
+    let x = rr.left - dr.left + rr.width / 2 - tr.width / 2, y = rr.bottom - dr.top + 16;
+    x = Math.max(6, Math.min(dr.width - tr.width - 6, x)); if (y + tr.height > dr.height - 50) y = rr.top - dr.top - tr.height - 10;
+    $('tip').style.left = x + 'px'; $('tip').style.top = y + 'px';
+  }
+
+  // ---------------- reset animations ----------------
+  const chip = async (cls, text, hold) => {
+    const c = $('chip'); c.className = 'chip ' + cls; c.textContent = text;
+    c.getAnimations().forEach(a => a.cancel());
+    await A(c, [{ opacity: 0, transform: 'translate(-50%,6px) scale(.85)' }, { opacity: 1, transform: 'translate(-50%,0) scale(1)' }], { duration: 650, easing: SPRING });
+    await wait(hold);
+    await A(c, [{ opacity: 1 }, { opacity: 0, transform: 'translate(-50%,-4px) scale(.96)' }], { duration: 400 });
+  };
+  const unlock = k => { const e = R[k]; [e.arc, e.glint, e.tick, e.num, e.svg, e.ok, e.when].forEach(x => x.getAnimations().forEach(a => a.cancel())); S.lock[k] = false; paintRings(); };
+
+  async function animPlanned(k, prev) {
+    if (mode !== 'rings') return;
+    S.lock[k] = true; const e = R[k];
+    const from = C * (1 - Math.min(100, prev.used) / 100);
+    e.arc.style.transition = 'none'; e.arc.setAttribute('stroke-dashoffset', from);
+    await A(e.glint, [{ opacity: 0, strokeDashoffset: 9 }, { opacity: 1, offset: .15 }, { opacity: 1, offset: .85 }, { opacity: 0, strokeDashoffset: -(C - from) + 9 }], { duration: 750, easing: 'ease-in-out' });
+    A(e.arc, [{ strokeDashoffset: from }, { strokeDashoffset: C }], { duration: 450, easing: 'cubic-bezier(.6,0,.4,1)' });
+    e.tick.style.opacity = 0;
+    A(e.svg, [{ transform: 'scale(1)' }, { transform: 'scale(.9)', offset: .35 }, { transform: 'scale(1)' }], { duration: 800, easing: SPRING });
+    await A(e.num, [{ transform: 'translateY(0)', opacity: 1 }, { transform: 'translateY(-8px)', opacity: 0 }], { duration: 200 });
+    e.num.getAnimations().forEach(a => a.cancel());
+    e.num.firstChild.nodeValue = 0; e.num.setAttribute('fill', COL.green); e.arc.setAttribute('stroke', COL.green);
+    A(e.num, [{ transform: 'translateY(8px)', opacity: 0 }, { transform: 'translateY(0)', opacity: 1 }], { duration: 500, easing: SPRING });
+    A(e.ok, [{ opacity: 0, transform: 'scale(.3)' }, { opacity: 1, transform: 'scale(1)' }, { opacity: 1, offset: .9 }, { opacity: 0 }], { duration: 3200, easing: 'ease-out' });
+    await wait(500);
+    e.arc.setAttribute('stroke-dashoffset', C); e.arc.style.transition = '';
+    chip('calm', k === 's' ? T().chipS : T().chipW, 2200);
+    await wait(700); unlock(k);
+  }
+
+  async function animSurprise(k, prev, early) {
+    if (mode !== 'rings') return;
+    S.lock[k] = true; const e = R[k];
+    const from = C * (1 - Math.min(100, prev.used) / 100);
+    e.arc.style.transition = 'none'; e.arc.setAttribute('stroke-dashoffset', from);
+    e.arc.setAttribute('stroke', COL.gold); e.num.setAttribute('fill', COL.gold);
+    A(e.arc, [{ filter: 'brightness(1)' }, { filter: 'brightness(1.9) drop-shadow(0 0 6px #facc15)' }, { filter: 'brightness(1.2)' }], { duration: 420 });
+    const wd = $('wd');
+    wd.animate([{ boxShadow: '0 12px 34px rgba(0,0,0,.4)' }, { boxShadow: '0 0 0 1.5px rgba(250,204,21,.85), 0 0 40px rgba(250,204,21,.4), 0 12px 34px rgba(0,0,0,.4)', offset: .12 }, { boxShadow: '0 0 0 1.5px rgba(250,204,21,.85), 0 0 40px rgba(250,204,21,.4), 0 12px 34px rgba(0,0,0,.4)', offset: .8 }, { boxShadow: '0 12px 34px rgba(0,0,0,.4)' }], { duration: 4200 });
+    await wait(380);
+    sparks(e, prev.used);
+    A(e.arc, [{ strokeDashoffset: from, opacity: 1 }, { strokeDashoffset: C, opacity: .2 }], { duration: 380, easing: 'cubic-bezier(.4,0,.2,1)' });
+    e.tick.style.opacity = 0;
+    await A(e.num, [{ filter: 'blur(0)', opacity: 1 }, { filter: 'blur(6px)', opacity: 0 }], { duration: 260 });
+    e.num.getAnimations().forEach(a => a.cancel());
+    e.num.firstChild.nodeValue = 0;
+    A(e.num, [{ filter: 'blur(6px)', opacity: 0, transform: 'scale(1.4)' }, { filter: 'blur(0)', opacity: 1, transform: 'scale(1)' }], { duration: 700, easing: SPRING });
+    chip('gold', T().surprise(fmtDur(early)), 2800);
+    await wait(2400);
+    e.arc.setAttribute('stroke-dashoffset', C); e.arc.style.transition = '';
+    unlock(k);
+  }
+  function sparks(e, used) {
+    const wr = $('wd').getBoundingClientRect(), sr = e.svg.getBoundingClientRect();
+    const cx = sr.left - wr.left + sr.width / 2, cy = sr.top - wr.top + sr.height / 2, rr = sr.width * 23 / 64;
+    for (let i = 0; i < 30; i++) {
+      const a0 = -Math.PI / 2 + Math.random() * 2 * Math.PI * Math.max(.15, used / 100);
+      const s = document.createElement('span'); s.className = 'spark'; s.style.background = ['#facc15', '#fde68a', '#fb923c', '#fff'][i % 4];
+      s.style.left = (cx + Math.cos(a0) * rr - 2.5) + 'px'; s.style.top = (cy + Math.sin(a0) * rr - 2.5) + 'px';
+      $('wd').appendChild(s);
+      const d = 24 + Math.random() * 50;
+      s.animate([{ transform: 'translate(0,0) scale(1)', opacity: 1 }, { transform: `translate(${Math.cos(a0) * d}px,${Math.sin(a0) * d}px) scale(.2)`, opacity: 0 }],
+        { duration: 700 + Math.random() * 600, easing: 'cubic-bezier(.1,.7,.3,1)', fill: 'forwards' }).finished.then(() => s.remove());
+    }
+  }
+
+  // ---------------- connect flow + fake browser ----------------
+  function startConnect() {
+    S.conn = 'waiting'; S.shown = null; render();
+    log(`Connect → opening claude.ai in ${S.browser === 'chrome' ? 'Chrome' : 'Firefox'}`);
+    openBrowser('login');
+  }
+  function openBrowser(page) {
+    $('br').style.display = 'block';
+    $('brname').textContent = S.browser === 'chrome' ? 'Chrome' : 'Firefox';
+    const pg = $('brpg');
+    if (page === 'login') {
+      $('brurl').textContent = 'claude.ai/login';
+      pg.innerHTML = `<div><h5>Log in</h5><p>(stand-in for the real claude.ai login page)</p><button class="pri" id="blog">Continue with email</button></div>`;
+      $('blog').onclick = () => { pg.innerHTML = `<div><h5>✓ You're logged in</h5><p>${S.browser === 'chrome' && !S.ext ? 'The widget still needs the helper extension to see it.' : 'You can close this tab.'}</p></div>`; $('brurl').textContent = 'claude.ai/new'; loggedIn(); };
+    } else if (page === 'store') {
+      $('brurl').textContent = 'chromewebstore.google.com/…/claude-usage-helper';
+      pg.innerHTML = `<div><h5>Claude Usage Widget, helper</h5><p>Lets the widget read your claude.ai session.<br>Only for claude.ai. Nothing else.</p><button class="pri" id="badd">Add to Chrome</button></div>`;
+      $('badd').onclick = () => { S.ext = true; log('helper extension installed', 'ev'); renderPanel(); pg.innerHTML = `<div><h5>✓ Extension added</h5><p>You can close this tab.</p></div>`; S.loggedIn ? loggedIn() : (render(), openBrowser('login')); };
+    }
+  }
+  function closeBrowser() { $('br').style.display = 'none'; }
+  $('brx').onclick = closeBrowser;
+  function loggedIn() {
+    S.loggedIn = true;
+    if (S.browser === 'chrome' && !S.ext) { render(); return; }
+    setTimeout(() => {
+      if (S.conn !== 'waiting') return;
+      log(`session found in ${S.browser === 'chrome' ? 'Chrome (via extension)' : 'Firefox'}`, 'ev');
+      log(`org picked from lastActiveOrg: ${S.truth[S.org].name}`);
+      S.conn = 'connected'; S.err = false; S.failNext = 0; S.lastOk = S.sim; render();
+      setTimeout(closeBrowser, 900);
+    }, 1200);
+  }
+
+  // ---------------- context menu ----------------
+  const menu = $('menu');
+  const flags = { top: true, boot: true };
+  $('wd').addEventListener('contextmenu', e => {
+    e.preventDefault(); hideTip();
+    const L = T();
+    const orgs = S.nOrgs > 1 ? `<div class="hd">${L.mOrg}</div>` + Object.keys(S.truth).map(k => `<div class="it ${k === S.org ? 'chk' : ''}" data-m="org:${k}">${S.truth[k].name}</div>`).join('') + '<div class="sep"></div>' : '';
+    menu.innerHTML = (S.conn === 'connected' ? `<div class="it" data-m="refresh">${L.mRefresh}</div><div class="sep"></div>${orgs}` : '') +
+      `<div class="it ${flags.top ? 'chk' : ''}" data-m="top">${L.mTop}</div><div class="it ${flags.boot ? 'chk' : ''}" data-m="boot">${L.mBoot}</div><div class="sep"></div>` +
+      (S.conn === 'connected' ? `<div class="it" data-m="disc">${L.mDisc}</div>` : '') + `<div class="it danger" data-m="quit">${L.mQuit}</div>`;
+    const dr = $('dt').getBoundingClientRect();
+    menu.style.display = 'block';
+    let x = e.clientX - dr.left, y = e.clientY - dr.top;
+    x = Math.min(x, dr.width - menu.offsetWidth - 6); y = Math.min(y, dr.height - menu.offsetHeight - 50);
+    menu.style.left = x + 'px'; menu.style.top = y + 'px';
+  });
+  document.addEventListener('click', () => { menu.style.display = 'none'; });
+  menu.addEventListener('click', e => {
+    const m = e.target.dataset.m; if (!m) return;
+    if (m === 'refresh') poll(true);
+    else if (m.startsWith('org:')) { S.org = m.slice(4); S.shown = null; log(`switched org → ${S.truth[S.org].name}`); poll(); }
+    else if (m === 'top' || m === 'boot') flags[m] = !flags[m];
+    else if (m === 'disc') { S.conn = 'disconnected'; S.shown = null; log('disconnected'); render(); }
+    else if (m === 'quit') $('bclose').click();
+  });
+  // minimize keeps the app running (and polling) in the taskbar; close quits it
+  const setShown = on => { $('wd').classList.toggle('hidden', !on); hideTip(); menu.style.display = 'none'; };
+  $('bmin').onclick = e => { e.stopPropagation(); S.min = true; setShown(false); log('minimized (still running · click the taskbar icon)'); };
+  // close = the process exits: widget gone, taskbar icon gone, no more polling
+  $('bclose').onclick = e => { e.stopPropagation(); S.visible = false; S.min = false; setShown(false); $('tbapp').classList.add('gone'); log('app quit · process exited, polling stopped (double-click the desktop icon to relaunch)', 'bd'); render(); };
+  $('tbapp').onclick = () => {
+    if (S.min) { S.min = false; setShown(true); log('restored'); }
+    else { S.min = true; setShown(false); log('minimized'); }
+    render();
+  };
+  $('appico').ondblclick = () => {
+    if (S.visible) { if (S.min) $('tbapp').click(); return; }
+    S.visible = true; S.min = false; $('tbapp').classList.remove('gone'); setShown(true);
+    log('app launched'); S.nextPoll = S.sim; poll(); render();
+  };
+
+  // ---------------- language flags ----------------
+  const paintTitles = () => { $('bmin').title = LANG === 'fr' ? 'Réduire' : 'Minimise'; $('bclose').title = LANG === 'fr' ? 'Fermer' : 'Close'; };
+  const paintFlags = () => { paintTitles(); paintFlags0(); };
+  const paintFlags0 = () => document.querySelectorAll('.flags svg').forEach(f => f.classList.toggle('on', f.dataset.lang === LANG));
+  document.querySelectorAll('.flags svg').forEach(f => f.addEventListener('click', e => {
+    e.stopPropagation();
+    if (LANG === f.dataset.lang) return;
+    LANG = f.dataset.lang; log(`language → ${LANG === 'fr' ? 'Français' : 'English (UK)'}`);
+    mode = null; render(); paintFlags();
+  }));
+  paintFlags();
+
+  // ---------------- drag ----------------
+  (() => {
+    const w = $('wd'); let sx, sy, ox, oy, on = false;
+    w.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || e.target.closest('button,.lnk,.ib,.flags')) return;
+      on = true; w.classList.add('dragging'); w.setPointerCapture(e.pointerId);
+      const dr = $('dt').getBoundingClientRect(), r = w.getBoundingClientRect();
+      ox = r.left - dr.left; oy = r.top - dr.top; sx = e.clientX; sy = e.clientY;
+      w.style.right = 'auto'; w.style.left = ox + 'px'; w.style.top = oy + 'px';
+    });
+    w.addEventListener('pointermove', e => {
+      if (!on) return; hideTip();
+      const dr = $('dt').getBoundingClientRect();
+      w.style.left = Math.max(0, Math.min(dr.width - w.offsetWidth, ox + e.clientX - sx)) + 'px';
+      w.style.top = Math.max(0, Math.min(dr.height - 44 - w.offsetHeight, oy + e.clientY - sy)) + 'px';
+    });
+    w.addEventListener('pointerup', () => { on = false; w.classList.remove('dragging'); });
+  })();
+
+  // ---------------- control panel ----------------
+  function renderPanel() {
+    $('speeds').innerHTML = SPEEDS.map(([l, v]) => `<button data-sp="${v}" class="${S.speed === v ? 'on' : ''}">${l}</button>`).join('');
+    $('rates').innerHTML = RATES.map(([l, v]) => `<button data-rt="${v}" class="${S.rate === v ? 'on' : ''}">${l}</button>`).join('');
+    $('browsers').innerHTML = [['firefox', 'Firefox'], ['chrome', 'Chrome']].map(([k, l]) => `<button data-bw="${k}" class="${S.browser === k ? 'on' : ''}">${l}</button>`).join('') +
+      (S.browser === 'chrome' ? `<span class="hint" style="align-self:center">extension ${S.ext ? 'installed' : 'not installed'}</span>` : '');
+    $('orgsN').innerHTML = [1, 2].map(n => `<button data-on="${n}" class="${S.nOrgs === n ? 'on' : ''}">${n} org${n > 1 ? 's' : ''}</button>`).join('');
+  }
+  document.querySelector('.cp').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.sp) S.speed = +b.dataset.sp;
+    if (b.dataset.rt) S.rate = +b.dataset.rt;
+    if (b.dataset.bw) { S.browser = b.dataset.bw; S.ext = false; }
+    if (b.dataset.on) { S.nOrgs = +b.dataset.on; if (S.nOrgs === 1 && S.org !== 'max') { S.org = 'max'; S.shown = null; poll(); } }
+    const a = b.dataset.a; const o = S.truth[S.org];
+    if (a === 'jump1h') step(H);
+    if (a === 'jump1d') step(D);
+    if (a === 'jumpS') { if (o.s.resetsAt) { const dt = o.s.resetsAt - S.sim - 45e3; if (dt > 0) step(dt); log('jumped to 45 s before the 5-hour reset'); } else log('no 5-hour session running: set usage above Idle first'); }
+    if (a === 'surpriseS' || a === 'surpriseB') { if (o.s.used >= 1) { o.s = { used: 0, resetsAt: null }; log('(Anthropic resets the 5-hour limit early)'); } else log('5-hour is already at 0%'); }
+    if (a === 'surpriseW' || a === 'surpriseB') { if (o.w.used >= 1) { o.w = { used: 0, resetsAt: o.w.resetsAt }; log('(Anthropic resets the weekly limit early)'); } }
+    if (a && a.startsWith('surprise')) poll();
+    if (a === 'near') { if (!o.s.resetsAt) { const st = new Date(S.sim); st.setMinutes(0, 0, 0); o.s.resetsAt = st.getTime() + 5 * H; } o.s.used = 92; poll(); }
+    if (a === 'err') { S.failNext = 3; log('(network goes down for 3 attempts)'); poll(); }
+    if (a === 'expire') { S.expireNext = true; log('(claude.ai session cookie expires)'); poll(); }
+    if (a === 'disconnect') { S.conn = 'disconnected'; S.shown = null; S.loggedIn = false; S.ext = false; closeBrowser(); log('— start over: first launch —'); render(); }
+    renderPanel();
+  });
+
+  // ---------------- main loop ----------------
+  function step(dt) {
+    // advance in chunks so scheduled resets and polls happen in order
+    while (dt > 0) {
+      const c = Math.min(dt, POLL); dt -= c; S.sim += c; advanceTruth(c);
+      if (S.visible && S.conn === 'connected' && S.sim >= S.nextPoll) poll();
+    }
+  }
+  let last = performance.now();
+  function frame(now) {
+    const realDt = Math.min(250, now - last); last = now;
+    step(realDt * S.speed);
+    const d = new Date(S.sim);
+    $('clock').innerHTML = `${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}<br>${d.toLocaleDateString('en-GB')}`;
+    $('cpclock').textContent = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · ' + d.toLocaleTimeString('en-GB');
+    paintRings(); updTip();
+    requestAnimationFrame(frame);
+  }
+  renderPanel();
+  log('app started · connected (Firefox) · polling every 30 s');
+  render();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

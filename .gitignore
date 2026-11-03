@@ -27,3 +27,7 @@ Thumbs.db
 
 # Claude Code
 .claude/
+
+# Brainstorm / browser-test artifacts
+.superpowers/
+.playwright-mcp/
