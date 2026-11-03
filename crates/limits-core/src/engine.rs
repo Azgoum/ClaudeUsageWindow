@@ -253,10 +253,8 @@ impl Engine {
     }
 
     fn save_org(&mut self, uuid: Option<String>) {
-        let mut s = self.deps.settings.load();
-        if s.org_uuid != uuid {
-            s.org_uuid = uuid.clone();
-            if let Err(e) = self.deps.settings.save(&s) {
+        if self.deps.settings.load().org_uuid != uuid {
+            if let Err(e) = self.deps.settings.update(|s| s.org_uuid = uuid.clone()) {
                 tracing::warn!("cannot save settings: {e}");
             }
         }

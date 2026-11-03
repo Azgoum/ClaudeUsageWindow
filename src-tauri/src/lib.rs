@@ -9,7 +9,7 @@ use limits_core::{
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewWindow, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
@@ -145,12 +145,12 @@ impl limits_core::BrowserLauncher for FakeLauncher {
     }
 }
 
-fn build_deps(dev: &DevEnv, settings: PathBuf) -> EngineDeps {
+/// `settings` must be a clone of the shell's store: clones share the write lock.
+fn build_deps(dev: &DevEnv, settings: SettingsStore) -> EngineDeps {
     let api = Arc::new(match &dev.base_url {
         Some(base) => HttpApi::new(base.clone()),
         None => HttpApi::claude(),
     });
-    let settings = SettingsStore::new(settings);
     #[cfg(debug_assertions)]
     if dev.fake_session {
         use limits_core::session::{FixedSource, FAKE_ORG_UUID};
@@ -179,8 +179,8 @@ fn build_deps(dev: &DevEnv, settings: PathBuf) -> EngineDeps {
 struct Shell {
     cmd: mpsc::Sender<Command>,
     state: watch::Receiver<AppState>,
-    /// Serializes the shell's load -> modify -> save cycles.
-    settings: Mutex<SettingsStore>,
+    /// Same lock as the engine's clone, so shell and engine writes never clobber each other.
+    settings: SettingsStore,
     /// False in isolated dev runs: the debug exe must never be registered at logon.
     manage_autostart: bool,
     move_gen: AtomicU64,
@@ -188,14 +188,11 @@ struct Shell {
 
 impl Shell {
     fn load(&self) -> Settings {
-        self.settings.lock().unwrap().load()
+        self.settings.load()
     }
 
     fn update(&self, f: impl FnOnce(&mut Settings)) -> Result<(), String> {
-        let store = self.settings.lock().unwrap();
-        let mut s = store.load();
-        f(&mut s);
-        store.save(&s).map_err(|e| {
+        self.settings.update(f).map(drop).map_err(|e| {
             tracing::warn!("cannot save settings: {e}");
             e.to_string()
         })
@@ -338,7 +335,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let appdata = std::env::var_os("APPDATA").ok_or("APPDATA is not set")?;
     let path = settings_path(Path::new(&appdata), dev.fake_session);
     let first_run = !path.exists();
-    let store = SettingsStore::new(path.clone());
+    let store = SettingsStore::new(path);
     let settings = store.load();
     let manage_autostart = !dev.fake_session;
 
@@ -350,7 +347,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let deps = build_deps(&dev, path);
+    let deps = build_deps(&dev, store.clone());
     let (cmd, state) = tauri::async_runtime::block_on(async move { spawn_engine(deps) });
     if dev.autoconnect {
         tracing::info!("dev autoconnect: sending Connect");
@@ -360,7 +357,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(Shell {
         cmd,
         state,
-        settings: Mutex::new(store),
+        settings: store,
         manage_autostart,
         move_gen: AtomicU64::new(0),
     });
