@@ -1,3 +1,5 @@
+pub mod firefox;
+
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::fmt;
