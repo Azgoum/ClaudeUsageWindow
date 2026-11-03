@@ -32,7 +32,7 @@ const tauriBridge: Bridge = {
   startDrag: () => getCurrentWindow().startDragging(),
 }
 
-const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
 // Outside Tauri (plain browser, Playwright) fall back to the scripted mock. The dynamic
 // import keeps it out of the Tauri bundle's main chunk and never loads it there.

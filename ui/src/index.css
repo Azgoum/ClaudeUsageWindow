@@ -121,10 +121,70 @@
   * {
     @apply border-border outline-ring/50;
     }
-  body {
-    @apply bg-background text-foreground;
-    }
   html {
     @apply font-sans;
     }
+  /* Transparent: the Tauri acrylic window sits behind the page. */
+  html, body, #root {
+    background: transparent;
+    overflow: hidden;
+    }
 }
+
+/* ---------- widget (values copied from the approved prototype) ---------- */
+.wd { --green:#34d399; --red:#fb7185; --blue:#7dd3fc; --gold:#facc15; --ink:#e7e7ea; --mute:#8b8b95; --dim:#5f5f69; }
+.wd { position: absolute; left: 0; top: 0; z-index: 10; color: var(--ink); font: 12px/1.2 Inter, "Segoe UI Variable", system-ui, sans-serif; cursor: grab; user-select: none;
+  background: rgba(22,22,28,.66); backdrop-filter: blur(18px) saturate(1.5); -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,.09); border-radius: 16px; box-shadow: 0 12px 34px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.06);
+  transition: box-shadow .4s, opacity .3s, transform .3s; }
+.wd.warn { box-shadow: 0 0 0 1px rgba(251,113,133,.45), 0 0 26px rgba(251,113,133,.25), 0 12px 34px rgba(0,0,0,.4); }
+.wd .rings { display: flex; gap: 6px; padding: 24px 14px 22px; }
+.wd .rg { width: 104px; text-align: center; position: relative; }
+.wd .rg svg { display: block; margin: 0 auto 6px; overflow: visible; }
+.wd .rg .name { font-size: 11px; font-weight: 650; color: #c9c9d1; white-space: nowrap; }
+.wd .rg .when { font-size: 10.5px; color: var(--ink); margin-top: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* out of flow: doesn't shift the centered title */
+.wd .rg .ok { color: var(--green); font-weight: 800; opacity: 0; display: inline-block; position: absolute; margin-left: 3px; }
+.wd .arc { transition: stroke-dashoffset .8s cubic-bezier(.2,.9,.25,1.05), stroke .4s; }
+.wd .tick { transition: transform .8s cubic-bezier(.2,.9,.25,1.05), opacity .3s; transform-box: view-box; transform-origin: 32px 32px; }
+.wd .num { transform-box: fill-box; transform-origin: center; transition: fill .4s; }
+.wd.err .rings { filter: grayscale(1); opacity: .5; }
+.wd .foot { display: none; padding: 0 12px 9px; font-size: 10.5px; text-align: center; }
+.wd.err .foot { display: block; }
+.wd .foot .msg { white-space: nowrap; color: #fda4af; }
+.wd .ctl { position: absolute; top: 4px; right: 5px; z-index: 2; display: flex; gap: 2px; opacity: 0; transition: opacity .2s; }
+.wd:hover .ctl, .wd:hover .rf, .wd:hover .flags { opacity: 1; }
+.wd .ib { width: 22px; height: 18px; display: grid; place-items: center; border-radius: 5px; color: var(--mute); cursor: pointer; transition: background .12s, color .12s; }
+.wd .ib:hover { background: rgba(255,255,255,.09); color: #fff; }
+.wd .ib.close:hover { background: #e81123; color: #fff; }
+.wd .ib svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.wd .rf { position: absolute; bottom: 5px; right: 5px; z-index: 2; opacity: 0; transition: opacity .2s; }
+.wd .flags { position: absolute; top: 6px; left: 8px; z-index: 2; display: flex; gap: 5px; opacity: 0; transition: opacity .2s; }
+.wd .flags svg { display: block; width: 16px; height: 11px; border-radius: 2px; cursor: pointer; opacity: .4; outline: 1px solid rgba(255,255,255,.15); transition: opacity .15s, transform .15s; }
+.wd .flags svg:hover { opacity: .8; transform: scale(1.1); }
+.wd .flags svg.on { opacity: 1; outline: 1.5px solid rgba(255,255,255,.75); }
+.wd .st { padding: 26px 18px 14px; width: 242px; }
+
+/* tooltip (portalled to <body>) */
+.tip-pos { z-index: 30; }
+.tip { pointer-events: none; background: rgba(14,14,18,.94); border: 1px solid rgba(255,255,255,.1); color: #ddd; font: 11px/1.5 Inter, system-ui; padding: 7px 10px; border-radius: 9px; white-space: nowrap; transition: opacity .15s; }
+.tip[data-starting-style], .tip[data-ending-style] { opacity: 0; }
+.tip b { color: #fff; }
+.tip .tt { font-weight: 650; color: #fff; padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,.1); }
+.tip .tt span { color: #8b8b95; font-weight: 400; }
+
+/* right-click menu (portalled to <body>) */
+.menu-pos { z-index: 40; }
+.menu { min-width: 200px; padding: 5px; border-radius: 10px; background: rgba(32,32,38,.96); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 16px 40px rgba(0,0,0,.5); font: 12px Inter, "Segoe UI Variable", system-ui; color: #e7e7ea; outline: none; user-select: none; --dim:#5f5f69; }
+.menu .it { padding: 6px 10px 6px 26px; border-radius: 6px; cursor: pointer; position: relative; white-space: nowrap; outline: none; }
+.menu .it:hover, .menu .it[data-highlighted] { background: rgba(255,255,255,.08); }
+.menu .it.chk::before { content: "✓"; position: absolute; left: 9px; color: #f0b38f; }
+.menu .hd { padding: 6px 10px 2px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.menu .sep { height: 1px; background: rgba(255,255,255,.08); margin: 4px 2px; }
+.menu .it.danger { color: #fda4af; }
+
+/* Browser mock only (never in Tauri): the prototype's desktop backdrop, for comparable screenshots. */
+.mock-desktop { position: fixed; inset: 0; overflow: hidden;
+  background: radial-gradient(120% 90% at 10% 0%, #3b2a6b 0%, transparent 55%), radial-gradient(90% 80% at 100% 100%, #0f4c5c 0%, transparent 60%), linear-gradient(135deg,#17171f,#0d0d12); }
+.mock-desktop::before { content:""; position:absolute; width:260px; height:260px; border-radius:50%; background:#d97757; filter: blur(80px); opacity:.3; left:30%; top:30%; }
+.mock-desktop .wd { left: auto; right: 16px; top: 16px; }
