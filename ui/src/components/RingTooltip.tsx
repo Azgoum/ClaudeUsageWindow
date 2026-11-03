@@ -1,7 +1,7 @@
 import { useCallback, useState, type ReactElement } from 'react'
 import { Tooltip } from '@base-ui/react/tooltip'
 import { agoText, tipModel } from '@/lib/ring'
-import type { Lang, RingView } from '@/lib/types'
+import type { Lang, LimitKey, RingView } from '@/lib/types'
 import { useNow } from '@/lib/useNow'
 
 interface Props {
@@ -11,7 +11,7 @@ interface Props {
   lang: Lang
   disabled?: boolean
   /** Popup height while it is mounted, then 0, so the window can make room for it. */
-  onPopupHeight?: (h: number) => void
+  onPopupHeight?: (key: LimitKey, h: number) => void
   children: ReactElement
 }
 
@@ -22,10 +22,10 @@ export function RingTooltip({ view, orgName, lastOk, lang, disabled = false, onP
   const popupRef = useCallback(
     (el: HTMLDivElement | null) => {
       if (!el) return
-      onPopupHeight?.(el.getBoundingClientRect().height)
-      return () => onPopupHeight?.(0)
+      onPopupHeight?.(view.key, el.getBoundingClientRect().height)
+      return () => onPopupHeight?.(view.key, 0)
     },
-    [onPopupHeight],
+    [onPopupHeight, view.key],
   )
   const now = useNow(1000, open)
   const m = tipModel(view, now, lang)

@@ -56,6 +56,12 @@ pub fn expand_bounds(rest: (i32, i32), base: (i32, i32), extra: i32, work: Rect)
     Bounds { pos: (rest.0, rest.1 - up), size, offset_y: up }
 }
 
+/// Position to save for a debounced window move: the resting position while a popup has the
+/// window expanded (its own moves are temporary), else the reported one.
+pub fn persisted_position(moved: (i32, i32), room: &PopupRoom) -> (i32, i32) {
+    room.rest().unwrap_or(moved)
+}
+
 /// Remembers the widget's resting position while the window is temporarily expanded.
 #[derive(Debug, Default)]
 pub struct PopupRoom {
@@ -67,6 +73,11 @@ impl PopupRoom {
     /// True while expanded: window moves must not be persisted.
     pub fn expanded(&self) -> bool {
         self.state.is_some()
+    }
+
+    /// The widget's resting position while expanded.
+    pub fn rest(&self) -> Option<(i32, i32)> {
+        self.state.map(|(rest, _)| rest)
     }
 
     /// New window bounds for `extra` px of popup room (0 = back to rest).
@@ -181,5 +192,31 @@ mod tests {
         room.apply((100, 854), BASE, 120, WORK);
         let again = room.apply((400, 100), BASE, 120, WORK);
         assert_eq!(again, Bounds { pos: (400, 220), size: (244, 266), offset_y: 0 });
+    }
+
+    #[test]
+    fn drag_then_popup_before_debounce_persists_the_drag_end() {
+        // The drag's last Moved reported (500, 300); a tooltip opens before the debounce fires.
+        let mut room = PopupRoom::default();
+        let down = room.apply((500, 300), BASE, 92, WORK);
+        assert_eq!(down.pos, (500, 300));
+        assert_eq!(persisted_position((500, 300), &room), (500, 300));
+        // Restoring a downward growth doesn't move the window (no new Moved event)...
+        let back = room.apply((500, 300), BASE, 0, WORK);
+        assert_eq!(back.pos, (500, 300));
+        // ...so the save made by the debounce above is the one that counts.
+    }
+
+    #[test]
+    fn upward_growth_never_persists_the_raised_window() {
+        let mut room = PopupRoom::default();
+        // Drag ended at (500, 900); the tooltip grows the window upward before the debounce fires.
+        let up = room.apply((500, 900), BASE, 92, WORK);
+        assert_eq!(up.pos, (500, 808));
+        assert_eq!(persisted_position((500, 900), &room), (500, 900));
+        assert_eq!(persisted_position((500, 808), &room), (500, 900));
+        // Not expanded: the reported position is saved as is.
+        room.apply(up.pos, BASE, 0, WORK);
+        assert_eq!(persisted_position((10, 20), &room), (10, 20));
     }
 }

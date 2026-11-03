@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type PointerEvent, type RefObject } from 'react'
 import { fitWindow, startDrag } from '@/lib/bridge'
 import { errLine, isNearLimit } from '@/lib/ring'
-import { menuRoom, tipRoom } from '@/lib/room'
-import type { AppState, Lang, Prefs } from '@/lib/types'
+import { maxRoom, menuRoom, tipRoom, withRingRoom, type RingRooms } from '@/lib/room'
+import type { AppState, Lang, LimitKey, Prefs } from '@/lib/types'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { HoverControls } from './HoverControls'
@@ -83,7 +83,9 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
   // Room for the open popups, in CSS px below the widget.
   const rootRef = useRef<HTMLDivElement>(null)
   const cursorY = useRef(0)
-  const [tipExtra, setTipExtra] = useState(0)
+  // Per ring: moving from one tooltip to the other, the old one clears only its own entry.
+  const [tipRooms, setTipRooms] = useState<RingRooms>({})
+  const tipExtra = maxRoom(tipRooms)
   const [menuExtra, setMenuExtra] = useState(0)
   const extra = Math.max(tipExtra, menuExtra)
   const { offset, settle, measure } = useWindowFit(extra)
@@ -95,12 +97,14 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
     [measure],
   )
 
-  const onTipHeight = useCallback((h: number) => {
+  const onTipHeight = useCallback((key: LimitKey, h: number) => {
     const el = rootRef.current
     const trigger = el?.querySelector('.rg-hit')
-    if (!el || !trigger || h === 0) return setTipExtra(0)
-    const top = el.getBoundingClientRect().top
-    setTipExtra(tipRoom(trigger.getBoundingClientRect().bottom - top, h, el.offsetHeight))
+    const room =
+      el && trigger && h > 0
+        ? tipRoom(trigger.getBoundingClientRect().bottom - el.getBoundingClientRect().top, h, el.offsetHeight)
+        : 0
+    setTipRooms((rooms) => withRingRoom(rooms, key, room))
   }, [])
   const onMenuHeight = useCallback((h: number) => {
     const el = rootRef.current
@@ -130,7 +134,7 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
     if ((e.target as Element).closest('button, [data-nodrag]')) return
     setDragging(true)
     if (extra > 0) {
-      setTipExtra(0)
+      setTipRooms({})
       setMenuExtra(0)
       void settle().then(() => startDrag())
     } else {

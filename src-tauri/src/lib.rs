@@ -3,8 +3,8 @@ mod logging;
 
 use limits_core::session::firefox::FirefoxSource;
 use limits_core::{
-    clamp_position, spawn_engine, AppState, Command, EngineDeps, HttpApi, KeyringCreds, PopupRoom,
-    Rect, Settings, SettingsStore, SystemClock,
+    clamp_position, persisted_position, spawn_engine, AppState, Command, EngineDeps, HttpApi,
+    KeyringCreds, PopupRoom, Rect, Settings, SettingsStore, SystemClock,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -335,13 +335,15 @@ fn place_window(w: &WebviewWindow, saved: Option<(i32, i32)>) -> tauri::Result<(
 }
 
 fn on_moved(app: &AppHandle, pos: PhysicalPosition<i32>) {
-    let expanded = |app: &AppHandle| {
-        let shell = app.state::<Shell>();
-        let room = shell.room.lock().unwrap_or_else(|p| p.into_inner());
-        room.expanded()
-    };
-    // Moves made while grown for a popup are temporary: only the resting position is saved.
-    if expanded(app) {
+    // Moves made while grown for a popup are our own and temporary: they don't restart the
+    // debounce, so a pending save from the user's drag still goes through.
+    if app
+        .state::<Shell>()
+        .room
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .expanded()
+    {
         return;
     }
     let gen = app.state::<Shell>().move_gen.fetch_add(1, Ordering::SeqCst) + 1;
@@ -357,8 +359,12 @@ fn on_moved(app: &AppHandle, pos: PhysicalPosition<i32>) {
             .get_webview_window(MAIN)
             .and_then(|w| w.is_minimized().ok())
             .unwrap_or(false);
-        if !minimized && !expanded(&app) {
-            let _ = shell.update(|s| s.position = Some((pos.x, pos.y)));
+        if !minimized {
+            // A popup may have expanded the window since: save its resting position then.
+            let room = shell.room.lock().unwrap_or_else(|p| p.into_inner());
+            let saved = persisted_position((pos.x, pos.y), &room);
+            drop(room);
+            let _ = shell.update(|s| s.position = Some(saved));
         }
     });
 }
