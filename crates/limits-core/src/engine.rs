@@ -298,7 +298,9 @@ impl Engine {
         }
         self.next_poll = None;
         let Some(c) = self.cookies.clone() else { return };
-        if self.org_uuid.is_none() {
+        // Also retry when the list is still empty (e.g. network down at boot): the org menu
+        // and the org name depend on it.
+        if self.org_uuid.is_none() || self.state.orgs.is_empty() {
             self.refresh_orgs().await;
         }
         let Some(org) = self.org_uuid.clone() else {
@@ -575,6 +577,10 @@ mod tests {
         Org { uuid: uuid.into(), name: uuid.into(), capabilities: caps.iter().map(|s| s.to_string()).collect() }
     }
 
+    fn default_orgs() -> Vec<Org> {
+        vec![org("org-a", &["chat"]), org("org-b", &["chat"]), org("org-api", &["api"])]
+    }
+
     fn summary(uuid: &str) -> OrgSummary {
         OrgSummary { uuid: uuid.into(), name: uuid.into() }
     }
@@ -587,6 +593,7 @@ mod tests {
         usage: Vec<Result<Usage, ApiError>>,
         source: Option<SessionCookies>,
         delay: Duration,
+        orgs_fail: bool,
     }
 
     impl Default for Setup {
@@ -599,6 +606,7 @@ mod tests {
                 usage: Vec::new(),
                 source: None,
                 delay: Duration::ZERO,
+                orgs_fail: false,
             }
         }
     }
@@ -666,7 +674,7 @@ mod tests {
         }
         let api = Arc::new(FakeApi {
             usage: Mutex::new(s.usage.into_iter().collect()),
-            orgs: Mutex::new(Ok(vec![org("org-a", &["chat"]), org("org-b", &["chat"]), org("org-api", &["api"])])),
+            orgs: Mutex::new(if s.orgs_fail { Err(ApiError::Unavailable("offline".into())) } else { Ok(default_orgs()) }),
             usage_calls: AtomicUsize::new(0),
             usage_orgs: Mutex::new(Vec::new()),
             delay: s.delay,
@@ -729,6 +737,21 @@ mod tests {
         assert_eq!(h.state().org, Some(summary("org-b")));
         assert_eq!(h.settings.load().org_uuid.as_deref(), Some("org-b"));
         assert_eq!(*h.api.usage_orgs.lock().unwrap(), vec!["org-b"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn orgs_failing_at_start_are_fetched_on_next_tick() {
+        let mut h = start(Setup { orgs_fail: true, ..with_creds() }).await;
+        assert_eq!(h.calls(), 1, "polling works with the saved org");
+        assert!(h.state().orgs.is_empty());
+        assert!(h.state().org.is_none());
+        *h.api.orgs.lock().unwrap() = Ok(default_orgs());
+        h.step(30).await;
+        let s = h.state();
+        assert_eq!(s.orgs, vec![summary("org-a"), summary("org-b")]);
+        assert_eq!(s.org, Some(summary("org-a")));
+        h.send(Command::SelectOrg("org-b".into())).await;
+        assert_eq!(h.state().org, Some(summary("org-b")));
     }
 
     #[tokio::test(start_paused = true)]
