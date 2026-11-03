@@ -31,3 +31,6 @@ Thumbs.db
 # Brainstorm / browser-test artifacts
 .superpowers/
 .playwright-mcp/
+
+# Rust
+target/
