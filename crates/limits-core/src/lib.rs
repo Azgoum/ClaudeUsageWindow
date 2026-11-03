@@ -1,3 +1,4 @@
+pub mod api;
 pub mod detect;
 pub mod model;
 pub mod org;
@@ -11,3 +12,4 @@ pub use pace::{backoff_delay, pace, window_len, Pace, PaceInfo};
 pub use detect::{detect_resets, ResetEvent, ResetKind};
 pub use org::{choose_org, eligible_orgs};
 pub use session::{SessionCookies, SessionSource};
+pub use api::{ApiError, ClaudeApi, HttpApi};
