@@ -3,5 +3,13 @@
   "identifier": "default",
   "description": "Main widget window",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-minimize"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://www.mozilla.org/*" }]
+    }
+  ]
 }

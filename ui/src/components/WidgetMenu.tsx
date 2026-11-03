@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactElement, type ReactNode } f
 import { ContextMenu } from '@base-ui/react/context-menu'
 import { quit, send, setAlwaysOnTop, setStartWithWindows } from '@/lib/bridge'
 import { t } from '@/lib/i18n'
+import { menuShows } from '@/lib/menu'
 import type { AppState, Lang, Prefs } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -54,7 +55,7 @@ export function WidgetMenu({ state, prefs, lang, onPrefs, onOpenChange, onPopupH
     },
     [onPopupHeight],
   )
-  const connected = state.conn.state === 'connected'
+  const connected = menuShows(state.conn).connectedItems
   return (
     <ContextMenu.Root open={open} onOpenChange={change}>
       <ContextMenu.Trigger render={render}>{children}</ContextMenu.Trigger>

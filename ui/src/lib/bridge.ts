@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { openUrl as tauriOpenUrl } from '@tauri-apps/plugin-opener'
 import type { AppState, CommandDto, Lang, Prefs } from './types'
 
 export type { UnlistenFn }
@@ -17,6 +18,8 @@ export interface Bridge {
   quit(): Promise<void>
   minimize(): Promise<void>
   startDrag(): Promise<void>
+  /** Opens a web page in the default browser (the backend only allows https://www.mozilla.org/*). */
+  openUrl(url: string): Promise<void>
   /**
    * Sizes the window to the widget (w×h CSS px) plus `extra` px for an open tooltip or menu
    * (0 = back to rest). Resolves to how far down the widget must sit inside the window.
@@ -35,6 +38,7 @@ const tauriBridge: Bridge = {
   quit: () => invoke('quit'),
   minimize: () => getCurrentWindow().minimize(),
   startDrag: () => getCurrentWindow().startDragging(),
+  openUrl: (url) => tauriOpenUrl(url),
   fitWindow: (w, h, extra) => invoke<number>('fit_window', { w, h, extra }),
 }
 
@@ -61,6 +65,7 @@ const impl: Bridge = inTauri
       quit: lazy('quit'),
       minimize: lazy('minimize'),
       startDrag: lazy('startDrag'),
+      openUrl: lazy('openUrl'),
       fitWindow: lazy('fitWindow'),
     }
 
@@ -74,4 +79,5 @@ export const setStartWithWindows = impl.setStartWithWindows
 export const quit = impl.quit
 export const minimize = impl.minimize
 export const startDrag = impl.startDrag
+export const openUrl = impl.openUrl
 export const fitWindow = impl.fitWindow

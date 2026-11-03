@@ -47,11 +47,14 @@ pub fn firefox_exe() -> Option<PathBuf> {
     resolve_exe(registry_exe, |p| p.is_file())
 }
 
-pub struct FirefoxLauncher;
+pub struct FirefoxLauncher {
+    /// Debug-only (`LIMITRINGS_FAKE_NO_FIREFOX`): report Firefox as missing.
+    pub pretend_missing: bool,
+}
 
 impl BrowserLauncher for FirefoxLauncher {
     fn firefox_installed(&self) -> bool {
-        firefox_exe().is_some()
+        !self.pretend_missing && firefox_exe().is_some()
     }
 
     fn open_login(&self) -> anyhow::Result<()> {

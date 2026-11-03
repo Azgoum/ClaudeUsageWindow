@@ -97,6 +97,8 @@ pub struct DevEnv {
     pub fake_session: bool,
     /// `LIMITRINGS_AUTOCONNECT=1`: send Connect at startup.
     pub autoconnect: bool,
+    /// `LIMITRINGS_FAKE_NO_FIREFOX=1`: the launcher reports Firefox as not installed.
+    pub no_firefox: bool,
 }
 
 impl DevEnv {
@@ -113,6 +115,7 @@ impl DevEnv {
             base_url,
             fake_session: on("LIMITRINGS_FAKE_SESSION"),
             autoconnect: on("LIMITRINGS_AUTOCONNECT"),
+            no_firefox: on("LIMITRINGS_FAKE_NO_FIREFOX"),
         }
     }
 
@@ -133,12 +136,12 @@ pub fn settings_path(appdata: &Path, dev: bool) -> PathBuf {
 }
 
 #[cfg(debug_assertions)]
-struct FakeLauncher(Arc<limits_core::session::FixedSource>);
+struct FakeLauncher(Arc<limits_core::session::FixedSource>, bool);
 
 #[cfg(debug_assertions)]
 impl limits_core::BrowserLauncher for FakeLauncher {
     fn firefox_installed(&self) -> bool {
-        true
+        !self.1
     }
     fn open_login(&self) -> anyhow::Result<()> {
         tracing::info!("fake session: login opened, session available in 5 s");
@@ -163,7 +166,7 @@ fn build_deps(dev: &DevEnv, settings: SettingsStore) -> EngineDeps {
             creds: Arc::new(KeyringCreds::with_user("session-dev")),
             settings,
             clock: Arc::new(SystemClock),
-            browser: Arc::new(FakeLauncher(source)),
+            browser: Arc::new(FakeLauncher(source, dev.no_firefox)),
         };
     }
     EngineDeps {
@@ -174,7 +177,9 @@ fn build_deps(dev: &DevEnv, settings: SettingsStore) -> EngineDeps {
         creds: Arc::new(KeyringCreds::new()),
         settings,
         clock: Arc::new(SystemClock),
-        browser: Arc::new(launch::FirefoxLauncher),
+        browser: Arc::new(launch::FirefoxLauncher {
+            pretend_missing: cfg!(debug_assertions) && dev.no_firefox,
+        }),
     }
 }
 
@@ -445,6 +450,7 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }))
+        .plugin(tauri_plugin_opener::init())
         .plugin(
             // The MacosLauncher setting only exists on macOS builds; Windows uses the Run key.
             tauri_plugin_autostart::Builder::new()
@@ -565,6 +571,7 @@ mod tests {
             "LIMITRINGS_BASE_URL" => Some("http://127.0.0.1:8787".to_string()),
             "LIMITRINGS_FAKE_SESSION" => Some("1".to_string()),
             "LIMITRINGS_AUTOCONNECT" => Some("0".to_string()),
+            "LIMITRINGS_FAKE_NO_FIREFOX" => Some("1".to_string()),
             _ => None,
         };
         assert_eq!(
@@ -573,6 +580,7 @@ mod tests {
                 base_url: Some(Url::parse("http://127.0.0.1:8787").unwrap()),
                 fake_session: true,
                 autoconnect: false,
+                no_firefox: true,
             }
         );
         assert_eq!(DevEnv::from_vars(|_| None), DevEnv::default());

@@ -204,6 +204,7 @@ export const mockBridge: Bridge = {
   quit: async () => console.info('[mock] quit'),
   minimize: async () => console.info('[mock] minimize'),
   startDrag: async () => console.info('[mock] startDrag'),
+  openUrl: async (url) => console.info('[mock] openUrl', url),
   fitWindow: async () => 0, // no window to resize in the browser
 }
 

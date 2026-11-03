@@ -5,6 +5,7 @@ import { maxRoom, menuRoom, tipRoom, withRingRoom, type RingRooms } from '@/lib/
 import type { AppState, Lang, LimitKey, Prefs } from '@/lib/types'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
+import { ConnectPanel } from './ConnectPanel'
 import { HoverControls } from './HoverControls'
 import { Ring, type RingHandle } from './Ring'
 import { RingTooltip } from './RingTooltip'
@@ -185,10 +186,7 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
           </div>
         </>
       ) : (
-        // Placeholder until Task 13's ConnectPanel lands.
-        <div className="st" data-conn={state.conn.state}>
-          {state.conn.state}
-        </div>
+        <ConnectPanel conn={state.conn} lang={lang} />
       )}
     </WidgetMenu>
   )
