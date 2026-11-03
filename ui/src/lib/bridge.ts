@@ -17,6 +17,11 @@ export interface Bridge {
   quit(): Promise<void>
   minimize(): Promise<void>
   startDrag(): Promise<void>
+  /**
+   * Sizes the window to the widget (w×h CSS px) plus `extra` px for an open tooltip or menu
+   * (0 = back to rest). Resolves to how far down the widget must sit inside the window.
+   */
+  fitWindow(w: number, h: number, extra: number): Promise<number>
 }
 
 const tauriBridge: Bridge = {
@@ -30,6 +35,7 @@ const tauriBridge: Bridge = {
   quit: () => invoke('quit'),
   minimize: () => getCurrentWindow().minimize(),
   startDrag: () => getCurrentWindow().startDragging(),
+  fitWindow: (w, h, extra) => invoke<number>('fit_window', { w, h, extra }),
 }
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -55,6 +61,7 @@ const impl: Bridge = inTauri
       quit: lazy('quit'),
       minimize: lazy('minimize'),
       startDrag: lazy('startDrag'),
+      fitWindow: lazy('fitWindow'),
     }
 
 export const onState = impl.onState
@@ -67,3 +74,4 @@ export const setStartWithWindows = impl.setStartWithWindows
 export const quit = impl.quit
 export const minimize = impl.minimize
 export const startDrag = impl.startDrag
+export const fitWindow = impl.fitWindow

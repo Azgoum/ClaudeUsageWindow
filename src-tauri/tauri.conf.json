@@ -15,16 +15,15 @@
       {
         "label": "main",
         "title": "Claude Limit Checker",
-        "width": 242,
-        "height": 150,
+        "width": 244,
+        "height": 146,
         "decorations": false,
         "transparent": true,
         "resizable": false,
         "alwaysOnTop": true,
         "skipTaskbar": false,
         "shadow": false,
-        "visible": false,
-        "windowEffects": { "effects": ["acrylic"] }
+        "visible": false
       }
     ],
     "security": {

@@ -3,15 +3,17 @@ mod logging;
 
 use limits_core::session::firefox::FirefoxSource;
 use limits_core::{
-    clamp_position, spawn_engine, AppState, Command, EngineDeps, HttpApi, KeyringCreds, Rect,
-    Settings, SettingsStore, SystemClock,
+    clamp_position, spawn_engine, AppState, Command, EngineDeps, HttpApi, KeyringCreds, PopupRoom,
+    Rect, Settings, SettingsStore, SystemClock,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewWindow, WindowEvent};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, WindowEvent,
+};
 use tauri_plugin_autostart::ManagerExt;
 use tokio::sync::{mpsc, watch};
 use url::Url;
@@ -184,6 +186,8 @@ struct Shell {
     /// False in isolated dev runs: the debug exe must never be registered at logon.
     manage_autostart: bool,
     move_gen: AtomicU64,
+    /// Resting position while the window is grown for a tooltip or menu (never persisted).
+    room: Mutex<PopupRoom>,
 }
 
 impl Shell {
@@ -253,6 +257,48 @@ fn set_start_with_windows(app: AppHandle, shell: State<'_, Shell>, on: bool) -> 
     shell.update(|s| s.start_with_windows = on)
 }
 
+/// Sizes the window to the widget (`w`×`h`, CSS px) plus `extra` px of room for an open
+/// tooltip or menu (0 = back to rest). Returns how far down (CSS px) the widget must sit
+/// inside the window: non-zero when the window grew upward.
+#[tauri::command]
+fn fit_window(
+    window: WebviewWindow,
+    shell: State<'_, Shell>,
+    w: f64,
+    h: f64,
+    extra: f64,
+) -> Result<f64, String> {
+    if !(w >= 1.0 && h >= 1.0 && extra >= 0.0) {
+        return Err(format!("bad widget size {w}x{h} (+{extra})"));
+    }
+    let err = |e: tauri::Error| e.to_string();
+    let scale = window.scale_factor().map_err(err)?;
+    let px = |v: f64| (v.max(0.0) * scale).ceil() as i32;
+    let pos = window.outer_position().map_err(err)?;
+    let monitor = match window.current_monitor().map_err(err)? {
+        Some(m) => Some(m),
+        None => window.primary_monitor().map_err(err)?,
+    };
+    let Some(monitor) = monitor else {
+        return Ok(0.0);
+    };
+    let b = shell.room.lock().unwrap_or_else(|p| p.into_inner()).apply(
+        (pos.x, pos.y),
+        (px(w), px(h)),
+        px(extra),
+        monitor_rect(&monitor),
+    );
+    if (b.pos.0, b.pos.1) != (pos.x, pos.y) {
+        window
+            .set_position(PhysicalPosition::new(b.pos.0, b.pos.1))
+            .map_err(err)?;
+    }
+    window
+        .set_size(PhysicalSize::new(b.size.0 as u32, b.size.1 as u32))
+        .map_err(err)?;
+    Ok(b.offset_y as f64 / scale)
+}
+
 #[tauri::command]
 fn quit(app: AppHandle) {
     app.exit(0);
@@ -289,6 +335,15 @@ fn place_window(w: &WebviewWindow, saved: Option<(i32, i32)>) -> tauri::Result<(
 }
 
 fn on_moved(app: &AppHandle, pos: PhysicalPosition<i32>) {
+    let expanded = |app: &AppHandle| {
+        let shell = app.state::<Shell>();
+        let room = shell.room.lock().unwrap_or_else(|p| p.into_inner());
+        room.expanded()
+    };
+    // Moves made while grown for a popup are temporary: only the resting position is saved.
+    if expanded(app) {
+        return;
+    }
     let gen = app.state::<Shell>().move_gen.fetch_add(1, Ordering::SeqCst) + 1;
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -302,7 +357,7 @@ fn on_moved(app: &AppHandle, pos: PhysicalPosition<i32>) {
             .get_webview_window(MAIN)
             .and_then(|w| w.is_minimized().ok())
             .unwrap_or(false);
-        if !minimized {
+        if !minimized && !expanded(&app) {
             let _ = shell.update(|s| s.position = Some((pos.x, pos.y)));
         }
     });
@@ -360,6 +415,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         settings: store,
         manage_autostart,
         move_gen: AtomicU64::new(0),
+        room: Mutex::new(PopupRoom::default()),
     });
 
     let w = app.get_webview_window(MAIN).ok_or("main window missing")?;
@@ -402,6 +458,7 @@ pub fn run() {
             set_language,
             set_always_on_top,
             set_start_with_windows,
+            fit_window,
             quit
         ])
         .run(tauri::generate_context!());
@@ -468,7 +525,7 @@ mod tests {
         w: 1920,
         h: 1080,
     };
-    const SIZE: (i32, i32) = (242, 150);
+    const SIZE: (i32, i32) = (244, 146);
 
     #[test]
     fn default_position_is_primary_top_right() {
@@ -480,7 +537,7 @@ mod tests {
         };
         assert_eq!(
             initial_position(None, SIZE, &[second, PRIMARY], PRIMARY),
-            (1920 - 242 - 16, 16)
+            (1920 - 244 - 16, 16)
         );
     }
 
@@ -492,7 +549,7 @@ mod tests {
         );
         assert_eq!(
             initial_position(Some((5000, 5000)), SIZE, &[PRIMARY], PRIMARY),
-            (1662, 16)
+            (1660, 16)
         );
     }
 

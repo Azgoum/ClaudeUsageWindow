@@ -18,7 +18,7 @@ pub use org::{choose_org, eligible_orgs};
 pub use session::{SessionCookies, SessionSource};
 pub use api::{ApiError, ClaudeApi, HttpApi};
 pub use store::{CredStore, KeyringCreds, MemCreds, Settings, SettingsStore};
-pub use window_pos::{clamp_position, Rect};
+pub use window_pos::{clamp_position, expand_bounds, Bounds, PopupRoom, Rect};
 pub use clock::{Clock, SystemClock};
 #[cfg(any(test, feature = "test-util"))]
 pub use clock::FakeClock;

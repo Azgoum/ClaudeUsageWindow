@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react'
+import { useCallback, useState, type ReactElement } from 'react'
 import { Tooltip } from '@base-ui/react/tooltip'
 import { agoText, tipModel } from '@/lib/ring'
 import type { Lang, RingView } from '@/lib/types'
@@ -10,12 +10,23 @@ interface Props {
   lastOk: string | null
   lang: Lang
   disabled?: boolean
+  /** Popup height while it is mounted, then 0, so the window can make room for it. */
+  onPopupHeight?: (h: number) => void
   children: ReactElement
 }
 
 /** Hover card under a ring (prototype `.tip`); its text refreshes every second while open. */
-export function RingTooltip({ view, orgName, lastOk, lang, disabled = false, children }: Props) {
+export function RingTooltip({ view, orgName, lastOk, lang, disabled = false, onPopupHeight, children }: Props) {
   const [open, setOpen] = useState(false)
+  // Stable, so the per-second re-render doesn't report 0 then h again (shrink/grow flicker).
+  const popupRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el) return
+      onPopupHeight?.(el.getBoundingClientRect().height)
+      return () => onPopupHeight?.(0)
+    },
+    [onPopupHeight],
+  )
   const now = useNow(1000, open)
   const m = tipModel(view, now, lang)
   const ago = agoText(lastOk, now, lang)
@@ -32,7 +43,7 @@ export function RingTooltip({ view, orgName, lastOk, lang, disabled = false, chi
           collisionPadding={6}
           className="tip-pos"
         >
-          <Tooltip.Popup className="tip">
+          <Tooltip.Popup ref={popupRef} className="tip">
             <div className="tt">
               {orgName} {ago && <span>· {ago}</span>}
             </div>
