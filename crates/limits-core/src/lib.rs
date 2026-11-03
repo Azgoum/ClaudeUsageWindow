@@ -1,5 +1,7 @@
 pub mod api;
+pub mod clock;
 pub mod detect;
+pub mod engine;
 pub mod model;
 pub mod org;
 pub mod pace;
@@ -17,3 +19,9 @@ pub use session::{SessionCookies, SessionSource};
 pub use api::{ApiError, ClaudeApi, HttpApi};
 pub use store::{CredStore, KeyringCreds, MemCreds, Settings, SettingsStore};
 pub use window_pos::{clamp_position, Rect};
+pub use clock::{Clock, SystemClock};
+#[cfg(any(test, feature = "test-util"))]
+pub use clock::FakeClock;
+pub use engine::{
+    spawn_engine, AppState, BrowserLauncher, Command, Conn, EngineDeps, ErrorInfo, OrgSummary, RingView,
+};
