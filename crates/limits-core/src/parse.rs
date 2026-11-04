@@ -69,7 +69,7 @@ pub fn parse_usage(body: &str) -> Result<Usage, ParseError> {
         .get("limits")
         .and_then(Value::as_array)
         .ok_or_else(|| ParseError::Shape("no five_hour, seven_day or limits".into()))?;
-    let unscoped = |e: &&Value| e.get("scope").map_or(true, Value::is_null);
+    let unscoped = |e: &&Value| e.get("scope").is_none_or(Value::is_null);
     let kind = |e: &Value| e.get("kind").and_then(Value::as_str).unwrap_or("").to_owned();
 
     let session = limits.iter().filter(unscoped).find(|e| {
