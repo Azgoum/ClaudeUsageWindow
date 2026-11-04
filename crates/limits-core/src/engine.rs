@@ -138,6 +138,7 @@ struct Engine {
     /// Latest successful usage, kept to recompute pace on failed ticks.
     last_usage: Option<Usage>,
     failures: u32,
+    heartbeat: Heartbeat,
     /// Fingerprint of the cookie claude.ai last rejected: Connect never sends it again.
     rejected: Option<u64>,
     inflight: Option<PollFuture>,
@@ -167,6 +168,34 @@ fn summaries(orgs: &[Org]) -> Vec<OrgSummary> {
         .collect()
 }
 
+/// Poll counters for an hourly info line: the 30 s cadence stays checkable in a release log
+/// at about 24 lines a day.
+#[derive(Debug, Default)]
+struct Heartbeat {
+    since: Option<DateTime<Utc>>,
+    polls: u32,
+    failures: u32,
+}
+
+impl Heartbeat {
+    const PERIOD: chrono::TimeDelta = chrono::TimeDelta::hours(1);
+
+    /// Counts one poll; returns `(polls, failures)` of the hour that ended before it, if any.
+    fn record(&mut self, ok: bool, now: DateTime<Utc>) -> Option<(u32, u32)> {
+        let since = *self.since.get_or_insert(now);
+        let mut line = None;
+        if now - since >= Self::PERIOD {
+            line = Some((self.polls, self.failures));
+            *self = Self { since: Some(now), ..Self::default() };
+        }
+        self.polls += 1;
+        if !ok {
+            self.failures += 1;
+        }
+        line
+    }
+}
+
 fn ring(key: LimitKey, u: &Usage, now: DateTime<Utc>) -> RingView {
     let w = u.get(key);
     let p = pace(key, w, now);
@@ -193,6 +222,7 @@ impl Engine {
             prev: None,
             last_usage: None,
             failures: 0,
+            heartbeat: Heartbeat::default(),
             rejected: None,
             inflight: None,
             next_poll: None,
@@ -347,8 +377,12 @@ impl Engine {
     }
 
     async fn on_poll_result(&mut self, res: Result<Usage, ApiError>) {
+        if let Some((polls, failures)) = self.heartbeat.record(res.is_ok(), self.deps.clock.now()) {
+            tracing::info!(polls, failures, "poll heartbeat (last hour)");
+        }
         match res {
             Ok(cur) => {
+                tracing::debug!(session = cur.session.used, weekly = cur.weekly.used, "poll ok");
                 let now = self.deps.clock.now();
                 if let Some(prev) = &self.prev {
                     let events = detect_resets(prev, &cur, now);
@@ -1094,6 +1128,25 @@ mod tests {
         assert!(s.rings.is_none());
         h.step(60).await;
         assert_eq!(h.calls(), 1, "no polling after disconnect");
+    }
+
+    #[test]
+    fn heartbeat_counts_polls() {
+        let mut hb = Heartbeat::default();
+        let t0 = t("2026-11-03T12:00:00Z");
+        let at = |s: i64| t0 + chrono::TimeDelta::seconds(s);
+        let mut lines = Vec::new();
+        // One failure, then a poll every 30 s for two hours.
+        for i in 0..=240 {
+            if let Some(l) = hb.record(i != 5, at(i * 30)) {
+                lines.push(l);
+            }
+        }
+        assert_eq!(lines, vec![(120, 1), (120, 0)]);
+        // A gap (PC asleep) emits once at the next poll, not once per missed hour.
+        // The poll at 2 h opened the third hour; a 6 h gap (PC asleep) emits once, not per hour.
+        assert_eq!(hb.record(true, at(240 * 30 + 6 * 3600)), Some((1, 0)));
+        assert_eq!(hb.record(true, at(240 * 30 + 6 * 3600 + 30)), None);
     }
 
     #[test]
