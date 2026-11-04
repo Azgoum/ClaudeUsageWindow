@@ -253,8 +253,11 @@ impl Engine {
             Some(c) => {
                 self.cookies = Some(c);
                 self.set_conn(Conn::Connected);
+                // Before any network wait: the UI must not show "Connect" while orgs load.
+                self.publish();
                 self.refresh_orgs().await;
-                self.start_poll().await;
+                // Just tried: a failed list is retried by the next poll, not awaited twice.
+                self.poll_now(false).await;
             }
             None => self.set_conn(Conn::Disconnected { timed_out: false }),
         }
@@ -299,6 +302,11 @@ impl Engine {
     }
 
     async fn start_poll(&mut self) {
+        self.poll_now(true).await;
+    }
+
+    /// Starts a usage poll; with `refresh_orgs`, first fetches the org list when it is missing.
+    async fn poll_now(&mut self, refresh_orgs: bool) {
         if self.inflight.is_some() {
             return;
         }
@@ -306,7 +314,7 @@ impl Engine {
         let Some(c) = self.cookies.clone() else { return };
         // Also retry when the list is still empty (e.g. network down at boot): the org menu
         // and the org name depend on it.
-        if self.org_uuid.is_none() || self.state.orgs.is_empty() {
+        if refresh_orgs && (self.org_uuid.is_none() || self.state.orgs.is_empty()) {
             self.refresh_orgs().await;
         }
         let Some(org) = self.org_uuid.clone() else {
@@ -508,11 +516,17 @@ mod tests {
         usage_calls: AtomicUsize,
         usage_orgs: Mutex<Vec<String>>,
         delay: Duration,
+        orgs_calls: AtomicUsize,
+        orgs_delay: Duration,
     }
 
     #[async_trait]
     impl ClaudeApi for FakeApi {
         async fn orgs(&self, _c: &SessionCookies) -> Result<Vec<Org>, ApiError> {
+            self.orgs_calls.fetch_add(1, Ordering::SeqCst);
+            if !self.orgs_delay.is_zero() {
+                tokio::time::sleep(self.orgs_delay).await;
+            }
             self.orgs.lock().unwrap().clone()
         }
         async fn usage(&self, _c: &SessionCookies, org_uuid: &str) -> Result<Usage, ApiError> {
@@ -602,6 +616,7 @@ mod tests {
         orgs_fail: bool,
         /// Org list served by the API (default: `default_orgs()`).
         orgs: Option<Vec<Org>>,
+        orgs_delay: Duration,
     }
 
     impl Default for Setup {
@@ -616,6 +631,7 @@ mod tests {
                 delay: Duration::ZERO,
                 orgs_fail: false,
                 orgs: None,
+                orgs_delay: Duration::ZERO,
             }
         }
     }
@@ -635,6 +651,9 @@ mod tests {
     impl H {
         fn state(&self) -> AppState {
             self.rx.borrow().clone()
+        }
+        fn orgs_calls(&self) -> usize {
+            self.api.orgs_calls.load(Ordering::SeqCst)
         }
         fn calls(&self) -> usize {
             self.api.usage_calls.load(Ordering::SeqCst)
@@ -691,6 +710,8 @@ mod tests {
             usage_calls: AtomicUsize::new(0),
             usage_orgs: Mutex::new(Vec::new()),
             delay: s.delay,
+            orgs_calls: AtomicUsize::new(0),
+            orgs_delay: s.orgs_delay,
         });
         let source = Arc::new(FakeSource::default());
         source.set(s.source);
@@ -779,6 +800,38 @@ mod tests {
         assert_eq!(s.org, Some(summary("org-a")));
         h.send(Command::SelectOrg("org-b".into())).await;
         assert_eq!(h.state().org, Some(summary("org-b")));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn publishes_connected_before_orgs_resolve() {
+        let mut h = start(Setup { orgs_delay: Duration::from_secs(10), ..with_creds() }).await;
+        h.jump(Duration::from_millis(1)).await;
+        assert_eq!(h.state().conn, Conn::Connected, "no Connect flash while the org list loads");
+        assert_eq!(h.calls(), 0);
+        h.step(10).await;
+        assert_eq!(h.calls(), 1);
+        assert_eq!(h.state().org, Some(summary("org-a")));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn start_with_network_down_awaits_orgs_once() {
+        let mut h = start(Setup {
+            orgs_fail: true,
+            saved_org: None,
+            ..with_creds()
+        })
+        .await;
+        assert_eq!(h.orgs_calls(), 1, "start does not re-await a list it just failed to get");
+        let s = h.state();
+        assert_eq!(s.conn, Conn::Connected);
+        assert!(s.rings.is_none());
+        assert_eq!(s.error, Some(ErrorInfo { retry_at: t("2026-11-03T12:01:00Z") }), "error shown with backoff");
+        // The next poll retries the list.
+        *h.api.orgs.lock().unwrap() = Ok(default_orgs());
+        h.step(60).await;
+        assert_eq!(h.orgs_calls(), 2);
+        assert_eq!(h.calls(), 1);
+        assert!(h.state().rings.is_some());
     }
 
     #[tokio::test(start_paused = true)]

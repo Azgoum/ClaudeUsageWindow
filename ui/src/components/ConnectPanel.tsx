@@ -1,22 +1,32 @@
 import { openUrl, send } from '@/lib/bridge'
 import { t } from '@/lib/i18n'
-import type { Conn, Lang } from '@/lib/types'
+import { errLine } from '@/lib/ring'
+import type { AppState, Conn, Lang } from '@/lib/types'
 
 const FIREFOX_URL = 'https://www.mozilla.org/firefox/'
 
 interface Props {
   conn: Conn
   lang: Lang
+  /** Connected but no rings yet: the failed first poll's retry time, if any. */
+  error: AppState['error']
+  now: number
 }
 
 /** Everything the widget shows while it is not connected (prototype `.st` block). */
-export function ConnectPanel({ conn, lang }: Props) {
+export function ConnectPanel({ conn, lang, error, now }: Props) {
   const L = t(lang)
   const connect = () => void send({ type: 'connect' })
 
   switch (conn.state) {
     case 'connected':
-      return null // connected but no rings yet: the next state event brings them
+      // No rings yet. Empty while the first poll runs; after a failure (e.g. no network at
+      // logon), the same retry line the rings show.
+      return error ? (
+        <div className="st" data-conn="connected">
+          <p className="msg">{errLine(error.retryAt, now, lang)}</p>
+        </div>
+      ) : null
     case 'waiting':
       return (
         <div className="st" data-conn="waiting">

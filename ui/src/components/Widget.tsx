@@ -107,9 +107,11 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
 
   const connected = state.conn.state === 'connected' && state.rings !== null
   const err = connected && state.error !== null
+  // Connected but the first poll failed (e.g. cold boot without network): no rings to keep.
+  const pendingErr = state.conn.state === 'connected' && state.rings === null && state.error !== null
   const warn = connected && !err && isNearLimit(state.rings)
   // Seconds matter only for the retry countdown; otherwise a slow clock keeps reset lines fresh.
-  const now = useNow(err ? 1000 : 30_000)
+  const now = useNow(err || pendingErr ? 1000 : 30_000)
 
   // Room for the open popups, in CSS px below the widget.
   const rootRef = useRef<HTMLDivElement>(null)
@@ -305,7 +307,7 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
           </div>
         </>
       ) : (
-        <ConnectPanel conn={state.conn} lang={lang} />
+        <ConnectPanel conn={state.conn} lang={lang} error={state.error} now={now} />
       )}
     </WidgetMenu>
   )
