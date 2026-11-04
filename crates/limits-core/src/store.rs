@@ -100,62 +100,89 @@ pub trait CredStore: Send + Sync {
     fn clear(&self) -> anyhow::Result<()>;
 }
 
-pub struct KeyringCreds {
-    user: String,
+/// Named secret blobs (one Windows Credential Manager entry each). A missing name is
+/// `Ok(None)` on `get` and a no-op on `delete`.
+pub trait Blobs: Send + Sync {
+    fn get(&self, name: &str) -> anyhow::Result<Option<String>>;
+    fn set(&self, name: &str, value: &str) -> anyhow::Result<()>;
+    fn delete(&self, name: &str) -> anyhow::Result<()>;
 }
+
+/// Windows Credential Manager entries under the service `limitrings`.
+pub struct KeyringBlobs;
 
 const SERVICE: &str = "limitrings";
 
-/// One Credential Manager blob holds at most 2560 UTF-16 bytes, less than a real cookie set.
-/// Longer JSON is split over extra entries `<user>.0 ..`; the main entry then holds `chunked:<n>`.
+impl Blobs for KeyringBlobs {
+    fn get(&self, name: &str) -> anyhow::Result<Option<String>> {
+        match keyring::Entry::new(SERVICE, name)?.get_password() {
+            Ok(v) => Ok(Some(v)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+    fn set(&self, name: &str, value: &str) -> anyhow::Result<()> {
+        Ok(keyring::Entry::new(SERVICE, name)?.set_password(value)?)
+    }
+    fn delete(&self, name: &str) -> anyhow::Result<()> {
+        match keyring::Entry::new(SERVICE, name)?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+/// Credentials as JSON in a head blob `<user>`. One Credential Manager blob holds at most 2560
+/// UTF-16 bytes, less than a real cookie set, so longer JSON goes to chunk blobs
+/// `<user>.<gen>.<i>` and the head holds `chunked:<gen>:<n>`. A save writes a whole new
+/// generation (1 or 2), then flips the head, then deletes every other chunk, so a crash or a
+/// failed write at any point leaves the previous credentials loadable. Older heads still load:
+/// plain JSON, and `chunked:<n>` with chunks `<user>.<i>`.
+pub struct ChunkedCreds<B: Blobs> {
+    blobs: B,
+    user: String,
+}
+
+pub type KeyringCreds = ChunkedCreds<KeyringBlobs>;
+
 const CHUNK_CHARS: usize = 600;
+/// Upper bound on chunks per generation (38 400 chars), also the bound of cleanup probing.
+const MAX_CHUNKS: usize = 64;
 const CHUNKED: &str = "chunked:";
+const GENS: [u8; 2] = [1, 2];
+
+/// What the head blob says.
+#[derive(Debug, PartialEq)]
+enum Head {
+    Plain(String),
+    /// `chunked:<n>`: chunks `<user>.<i>` (first chunked format).
+    Legacy(usize),
+    /// `chunked:<gen>:<n>`: chunks `<user>.<gen>.<i>`.
+    Gen(u8, usize),
+    Corrupt,
+}
+
+fn parse_head(head: String) -> Head {
+    let Some(rest) = head.strip_prefix(CHUNKED) else {
+        return Head::Plain(head);
+    };
+    let count = |n: &str| n.parse::<usize>().ok().filter(|n| (1..=MAX_CHUNKS).contains(n));
+    let parsed = match rest.split_once(':') {
+        None => count(rest).map(Head::Legacy),
+        Some((g, n)) => match (g.parse::<u8>().ok().filter(|g| GENS.contains(g)), count(n)) {
+            (Some(g), Some(n)) => Some(Head::Gen(g, n)),
+            _ => None,
+        },
+    };
+    parsed.unwrap_or(Head::Corrupt)
+}
 
 impl KeyringCreds {
-    fn entry_named(&self, name: &str) -> keyring::Result<keyring::Entry> {
-        keyring::Entry::new(SERVICE, name)
-    }
-
-    fn entry(&self) -> keyring::Result<keyring::Entry> {
-        self.entry_named(&self.user)
-    }
-
-    fn chunk_entry(&self, i: usize) -> keyring::Result<keyring::Entry> {
-        self.entry_named(&format!("{}.{i}", self.user))
-    }
-
     pub fn new() -> Self {
         Self::with_user("session")
     }
     pub fn with_user(user: &str) -> Self {
-        Self { user: user.to_string() }
-    }
-
-    fn read_raw(&self) -> keyring::Result<String> {
-        let head = self.entry()?.get_password()?;
-        let Some(n) = head.strip_prefix(CHUNKED).and_then(|n| n.parse::<usize>().ok()) else {
-            return Ok(head);
-        };
-        let mut out = String::new();
-        for i in 0..n {
-            out.push_str(&self.chunk_entry(i)?.get_password()?);
-        }
-        Ok(out)
-    }
-
-    /// Deletes every chunk entry the main entry points to (no-op for a plain entry).
-    fn clear_chunks(&self) {
-        let n = self
-            .entry()
-            .and_then(|e| e.get_password())
-            .ok()
-            .and_then(|h| h.strip_prefix(CHUNKED).and_then(|n| n.parse::<usize>().ok()))
-            .unwrap_or(0);
-        for i in 0..n {
-            if let Ok(e) = self.chunk_entry(i) {
-                let _ = e.delete_credential();
-            }
-        }
+        ChunkedCreds::with_blobs(KeyringBlobs, user)
     }
 }
 
@@ -165,11 +192,72 @@ impl Default for KeyringCreds {
     }
 }
 
-impl CredStore for KeyringCreds {
+impl<B: Blobs> ChunkedCreds<B> {
+    pub fn with_blobs(blobs: B, user: &str) -> Self {
+        Self { blobs, user: user.to_string() }
+    }
+
+    fn chunk_name(&self, gen: Option<u8>, i: usize) -> String {
+        match gen {
+            Some(g) => format!("{}.{g}.{i}", self.user),
+            None => format!("{}.{i}", self.user),
+        }
+    }
+
+    fn head(&self) -> anyhow::Result<Option<Head>> {
+        Ok(self.blobs.get(&self.user)?.map(parse_head))
+    }
+
+    /// Concatenated chunks; `Ok(None)` when one is missing.
+    fn read_chunks(&self, gen: Option<u8>, n: usize) -> anyhow::Result<Option<String>> {
+        let mut out = String::new();
+        for i in 0..n {
+            match self.blobs.get(&self.chunk_name(gen, i))? {
+                Some(part) => out.push_str(&part),
+                None => return Ok(None),
+            }
+        }
+        Ok(Some(out))
+    }
+
+    fn read_raw(&self) -> anyhow::Result<Option<String>> {
+        let raw = match self.head()? {
+            None => return Ok(None),
+            Some(Head::Plain(json)) => return Ok(Some(json)),
+            Some(Head::Legacy(n)) => self.read_chunks(None, n)?,
+            Some(Head::Gen(g, n)) => self.read_chunks(Some(g), n)?,
+            Some(Head::Corrupt) => {
+                tracing::warn!("stored credential header is corrupt; ignoring");
+                return Ok(None);
+            }
+        };
+        if raw.is_none() {
+            tracing::warn!("a stored credential chunk is missing; ignoring the stored session");
+        }
+        Ok(raw)
+    }
+
+    /// Deletes every chunk name (both generations and the legacy layout), all indices up to the
+    /// cap, except generation `keep`. Bounded: never trusts a count read from the store.
+    fn purge_chunks(&self, keep: Option<u8>) -> anyhow::Result<()> {
+        let mut first_err = None;
+        let gens = [None, Some(GENS[0]), Some(GENS[1])];
+        for gen in gens.into_iter().filter(|g| g.is_none() || *g != keep) {
+            for i in 0..MAX_CHUNKS {
+                if let Err(e) = self.blobs.delete(&self.chunk_name(gen, i)) {
+                    first_err.get_or_insert(e);
+                }
+            }
+        }
+        first_err.map_or(Ok(()), Err)
+    }
+}
+
+impl<B: Blobs> CredStore for ChunkedCreds<B> {
     fn load(&self) -> Option<SessionCookies> {
         let raw = match self.read_raw() {
-            Ok(raw) => raw,
-            Err(keyring::Error::NoEntry) => return None,
+            Ok(Some(raw)) => raw,
+            Ok(None) => return None,
             Err(e) => {
                 tracing::warn!("credential store read failed: {e}");
                 return None;
@@ -183,27 +271,48 @@ impl CredStore for KeyringCreds {
             }
         }
     }
+
     fn save(&self, c: &SessionCookies) -> anyhow::Result<()> {
         let json = serde_json::to_string(c)?;
-        self.clear_chunks();
-        if json.chars().count() <= CHUNK_CHARS {
-            self.entry()?.set_password(&json)?;
+        let chars: Vec<char> = json.chars().collect();
+        if chars.len() <= CHUNK_CHARS {
+            self.blobs.set(&self.user, &json)?;
+            if let Err(e) = self.purge_chunks(None) {
+                tracing::warn!("cannot delete old credential chunks: {e}");
+            }
             return Ok(());
         }
-        let chars: Vec<char> = json.chars().collect();
         let chunks: Vec<String> = chars.chunks(CHUNK_CHARS).map(|c| c.iter().collect()).collect();
-        for (i, chunk) in chunks.iter().enumerate() {
-            self.chunk_entry(i)?.set_password(chunk)?;
+        anyhow::ensure!(chunks.len() <= MAX_CHUNKS, "credentials too large to store");
+        // The generation not in use, so the current one stays intact until the head flips.
+        let current = match self.head() {
+            Ok(Some(Head::Gen(g, _))) => Some(g),
+            _ => None,
+        };
+        let gen = if current == Some(GENS[0]) { GENS[1] } else { GENS[0] };
+        let write = || -> anyhow::Result<()> {
+            for (i, chunk) in chunks.iter().enumerate() {
+                self.blobs.set(&self.chunk_name(Some(gen), i), chunk)?;
+            }
+            self.blobs.set(&self.user, &format!("{CHUNKED}{gen}:{}", chunks.len()))
+        };
+        if let Err(e) = write() {
+            // Drop the partial new generation; the head still points at the previous one.
+            for i in 0..MAX_CHUNKS {
+                let _ = self.blobs.delete(&self.chunk_name(Some(gen), i));
+            }
+            return Err(e);
         }
-        self.entry()?.set_password(&format!("{CHUNKED}{}", chunks.len()))?;
+        if let Err(e) = self.purge_chunks(Some(gen)) {
+            tracing::warn!("cannot delete old credential chunks: {e}");
+        }
         Ok(())
     }
+
     fn clear(&self) -> anyhow::Result<()> {
-        self.clear_chunks();
-        match self.entry()?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(e.into()),
-        }
+        // Head first: from here on nothing loads, even if the chunk cleanup is interrupted.
+        self.blobs.delete(&self.user)?;
+        self.purge_chunks(None)
     }
 }
 
@@ -316,6 +425,165 @@ mod tests {
         assert_eq!(m.load(), Some(cookies()));
         m.clear().unwrap();
         assert_eq!(m.load(), None);
+    }
+
+    // ---------- chunked credentials, on an in-memory blob map ----------
+
+    #[derive(Default)]
+    struct MemBlobs {
+        map: Mutex<std::collections::BTreeMap<String, String>>,
+        /// Fail the k-th `set` counted from `fail_on_set`.
+        fail_set_at: Mutex<Option<usize>>,
+        sets: Mutex<usize>,
+    }
+
+    impl MemBlobs {
+        fn names(&self) -> Vec<String> {
+            self.map.lock().unwrap().keys().cloned().collect()
+        }
+        fn put(&self, name: &str, v: &str) {
+            self.map.lock().unwrap().insert(name.into(), v.into());
+        }
+        fn fail_on_set(&self, k: usize) {
+            *self.sets.lock().unwrap() = 0;
+            *self.fail_set_at.lock().unwrap() = Some(k);
+        }
+    }
+
+    impl Blobs for &MemBlobs {
+        fn get(&self, name: &str) -> anyhow::Result<Option<String>> {
+            Ok(self.map.lock().unwrap().get(name).cloned())
+        }
+        fn set(&self, name: &str, value: &str) -> anyhow::Result<()> {
+            let mut n = self.sets.lock().unwrap();
+            *n += 1;
+            if *self.fail_set_at.lock().unwrap() == Some(*n) {
+                anyhow::bail!("simulated write failure");
+            }
+            assert!(value.encode_utf16().count() <= 1280, "blob over the Credential Manager limit");
+            self.map.lock().unwrap().insert(name.into(), value.into());
+            Ok(())
+        }
+        fn delete(&self, name: &str) -> anyhow::Result<()> {
+            self.map.lock().unwrap().remove(name);
+            Ok(())
+        }
+    }
+
+    fn big(tag: char) -> SessionCookies {
+        SessionCookies {
+            cookies: vec![
+                ("sessionKey".into(), tag.to_string().repeat(1800)),
+                ("other".into(), "é".repeat(1500)),
+            ],
+        }
+    }
+
+    #[test]
+    fn chunked_small_roundtrip_uses_one_blob() {
+        let m = MemBlobs::default();
+        let k = ChunkedCreds::with_blobs(&m, "session");
+        assert_eq!(k.load(), None);
+        k.save(&cookies()).unwrap();
+        assert_eq!(k.load(), Some(cookies()));
+        assert_eq!(m.names(), vec!["session"]);
+    }
+
+    #[test]
+    fn chunked_legacy_plain_head_reads_back() {
+        let m = MemBlobs::default();
+        m.put("session", &serde_json::to_string(&cookies()).unwrap());
+        assert_eq!(ChunkedCreds::with_blobs(&m, "session").load(), Some(cookies()));
+    }
+
+    #[test]
+    fn chunked_legacy_unversioned_chunks_read_back_and_are_replaced() {
+        let m = MemBlobs::default();
+        let j: Vec<char> = serde_json::to_string(&big('a')).unwrap().chars().collect();
+        let parts: Vec<String> = j.chunks(600).map(|c| c.iter().collect()).collect();
+        for (i, p) in parts.iter().enumerate() {
+            m.put(&format!("session.{i}"), p);
+        }
+        m.put("session", &format!("chunked:{}", parts.len()));
+        let k = ChunkedCreds::with_blobs(&m, "session");
+        assert_eq!(k.load(), Some(big('a')));
+        k.save(&big('b')).unwrap();
+        assert_eq!(k.load(), Some(big('b')));
+        let names = m.names();
+        assert!(names.iter().all(|n| n == "session" || n.starts_with("session.1.")), "{names:?}");
+    }
+
+    #[test]
+    fn chunked_grow_then_shrink_leaves_no_extra_names() {
+        let m = MemBlobs::default();
+        let k = ChunkedCreds::with_blobs(&m, "session");
+        k.save(&big('a')).unwrap();
+        assert_eq!(k.load(), Some(big('a')));
+        let first = m.names();
+        assert!(first.len() > 2, "a large set is chunked: {first:?}");
+        k.save(&big('b')).unwrap();
+        assert_eq!(k.load(), Some(big('b')));
+        assert_eq!(m.names().len(), first.len(), "previous generation deleted: {:?}", m.names());
+        k.save(&cookies()).unwrap();
+        assert_eq!(k.load(), Some(cookies()));
+        assert_eq!(m.names(), vec!["session"]);
+    }
+
+    #[test]
+    fn chunked_failure_mid_write_keeps_previous_credentials() {
+        let m = MemBlobs::default();
+        let k = ChunkedCreds::with_blobs(&m, "session");
+        k.save(&big('a')).unwrap();
+        let before = m.names();
+        m.fail_on_set(3);
+        assert!(k.save(&big('b')).is_err());
+        assert_eq!(k.load(), Some(big('a')));
+        assert_eq!(m.names(), before, "partial new generation cleaned up");
+        // Same when the previous set fit in one blob.
+        k.save(&cookies()).unwrap();
+        m.fail_on_set(3);
+        assert!(k.save(&big('c')).is_err());
+        assert_eq!(k.load(), Some(cookies()));
+        assert_eq!(m.names(), vec!["session"]);
+    }
+
+    #[test]
+    fn chunked_clear_removes_orphans() {
+        let m = MemBlobs::default();
+        let k = ChunkedCreds::with_blobs(&m, "session");
+        k.save(&big('a')).unwrap();
+        for i in 7..10 {
+            m.put(&format!("session.{i}"), "orphan");
+            m.put(&format!("session.1.{i}"), "orphan");
+            m.put(&format!("session.2.{i}"), "orphan");
+        }
+        k.clear().unwrap();
+        assert!(m.names().is_empty(), "{:?}", m.names());
+        assert_eq!(k.load(), None);
+        k.clear().unwrap();
+    }
+
+    #[test]
+    fn chunked_missing_chunk_is_none() {
+        let m = MemBlobs::default();
+        let k = ChunkedCreds::with_blobs(&m, "session");
+        k.save(&big('a')).unwrap();
+        let chunk = m.names().into_iter().find(|n| n.ends_with(".1")).unwrap();
+        m.map.lock().unwrap().remove(&chunk);
+        assert_eq!(k.load(), None);
+    }
+
+    #[test]
+    fn chunked_corrupt_head_is_none_and_clear_is_bounded() {
+        let heads = ["chunked:999999", "chunked:4000000000", "chunked:1:999999", "chunked:9:2", "chunked:x", "{not json"];
+        for head in heads {
+            let m = MemBlobs::default();
+            m.put("session", head);
+            let k = ChunkedCreds::with_blobs(&m, "session");
+            assert_eq!(k.load(), None, "{head}");
+            k.clear().unwrap();
+            assert!(m.names().is_empty(), "{head}");
+        }
     }
 
     #[test]
