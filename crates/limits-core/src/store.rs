@@ -106,9 +106,22 @@ pub struct KeyringCreds {
 
 const SERVICE: &str = "limitrings";
 
+/// One Credential Manager blob holds at most 2560 UTF-16 bytes, less than a real cookie set.
+/// Longer JSON is split over extra entries `<user>.0 ..`; the main entry then holds `chunked:<n>`.
+const CHUNK_CHARS: usize = 600;
+const CHUNKED: &str = "chunked:";
+
 impl KeyringCreds {
+    fn entry_named(&self, name: &str) -> keyring::Result<keyring::Entry> {
+        keyring::Entry::new(SERVICE, name)
+    }
+
     fn entry(&self) -> keyring::Result<keyring::Entry> {
-        keyring::Entry::new(SERVICE, &self.user)
+        self.entry_named(&self.user)
+    }
+
+    fn chunk_entry(&self, i: usize) -> keyring::Result<keyring::Entry> {
+        self.entry_named(&format!("{}.{i}", self.user))
     }
 
     pub fn new() -> Self {
@@ -116,6 +129,33 @@ impl KeyringCreds {
     }
     pub fn with_user(user: &str) -> Self {
         Self { user: user.to_string() }
+    }
+
+    fn read_raw(&self) -> keyring::Result<String> {
+        let head = self.entry()?.get_password()?;
+        let Some(n) = head.strip_prefix(CHUNKED).and_then(|n| n.parse::<usize>().ok()) else {
+            return Ok(head);
+        };
+        let mut out = String::new();
+        for i in 0..n {
+            out.push_str(&self.chunk_entry(i)?.get_password()?);
+        }
+        Ok(out)
+    }
+
+    /// Deletes every chunk entry the main entry points to (no-op for a plain entry).
+    fn clear_chunks(&self) {
+        let n = self
+            .entry()
+            .and_then(|e| e.get_password())
+            .ok()
+            .and_then(|h| h.strip_prefix(CHUNKED).and_then(|n| n.parse::<usize>().ok()))
+            .unwrap_or(0);
+        for i in 0..n {
+            if let Ok(e) = self.chunk_entry(i) {
+                let _ = e.delete_credential();
+            }
+        }
     }
 }
 
@@ -127,7 +167,7 @@ impl Default for KeyringCreds {
 
 impl CredStore for KeyringCreds {
     fn load(&self) -> Option<SessionCookies> {
-        let raw = match self.entry().and_then(|e| e.get_password()) {
+        let raw = match self.read_raw() {
             Ok(raw) => raw,
             Err(keyring::Error::NoEntry) => return None,
             Err(e) => {
@@ -145,10 +185,21 @@ impl CredStore for KeyringCreds {
     }
     fn save(&self, c: &SessionCookies) -> anyhow::Result<()> {
         let json = serde_json::to_string(c)?;
-        self.entry()?.set_password(&json)?;
+        self.clear_chunks();
+        if json.chars().count() <= CHUNK_CHARS {
+            self.entry()?.set_password(&json)?;
+            return Ok(());
+        }
+        let chars: Vec<char> = json.chars().collect();
+        let chunks: Vec<String> = chars.chunks(CHUNK_CHARS).map(|c| c.iter().collect()).collect();
+        for (i, chunk) in chunks.iter().enumerate() {
+            self.chunk_entry(i)?.set_password(chunk)?;
+        }
+        self.entry()?.set_password(&format!("{CHUNKED}{}", chunks.len()))?;
         Ok(())
     }
     fn clear(&self) -> anyhow::Result<()> {
+        self.clear_chunks();
         match self.entry()?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(e.into()),
@@ -278,5 +329,26 @@ mod tests {
         k.clear().unwrap();
         assert_eq!(k.load(), None);
         k.clear().unwrap();
+    }
+
+    #[test]
+    #[ignore = "touches the real Windows Credential Manager"]
+    fn keyring_roundtrip_large_cookie_set_beyond_one_entry_limit() {
+        // A real claude.ai cookie set is longer than the 2560-byte credential blob limit.
+        let big = SessionCookies {
+            cookies: vec![
+                ("sessionKey".into(), "a".repeat(1800)),
+                ("other".into(), "b".repeat(1500)),
+            ],
+        };
+        let k = KeyringCreds::with_user("session-test-large");
+        k.clear().unwrap();
+        k.save(&big).unwrap();
+        assert_eq!(k.load(), Some(big));
+        // Shrinking leaves no stale chunks behind.
+        k.save(&cookies()).unwrap();
+        assert_eq!(k.load(), Some(cookies()));
+        k.clear().unwrap();
+        assert_eq!(k.load(), None);
     }
 }
