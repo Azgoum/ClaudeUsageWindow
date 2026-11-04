@@ -29,6 +29,7 @@ mod tests {
             uuid: uuid.into(),
             name: uuid.into(),
             capabilities: caps.iter().map(|s| s.to_string()).collect(),
+            plan: None,
         }
     }
 

@@ -1,7 +1,7 @@
 import { PACE_COLOR } from './colors'
 import { fmtDay, fmtDur, fmtTime } from './format'
 import { t } from './i18n'
-import type { Lang, RingView } from './types'
+import type { Lang, OrgSummary, Plan, RingView } from './types'
 
 /** Circumference of the r=23 ring. */
 export const CIRC = 2 * Math.PI * 23
@@ -32,6 +32,25 @@ export type TipModel =
       pace: { text: string; color: string } | null
       resets: string | null
     }
+
+/** Tooltip title (spec §8): the plan, or the org name when the plan is unknown. */
+export function tipTitle(org: OrgSummary | null, orgs: readonly OrgSummary[], lang: Lang): string {
+  if (!org) return ''
+  const L = t(lang)
+  const labels: Record<Plan, string> = {
+    max: L.planMax,
+    pro: L.planPro,
+    team: L.planTeam,
+    enterprise: L.planEnterprise,
+  }
+  const plan = org.plan ? labels[org.plan] : undefined
+  if (!plan) return org.name
+  // A personal org is named "<email>'s Organization": it adds nothing and shows the email.
+  const named = orgs.length > 1 && org.name !== '' && !PERSONAL_ORG.test(org.name)
+  return named ? `${plan} · ${org.name}` : plan
+}
+
+const PERSONAL_ORG = /['’]s Organization$/
 
 /** Text of the ring tooltip (prototype `updTip`), minus the org/updated header. */
 export function tipModel(r: RingView, now: number, lang: Lang): TipModel {

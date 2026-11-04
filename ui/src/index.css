@@ -186,7 +186,9 @@
 .tip { pointer-events: none; background: rgba(14,14,18,.94); border: 1px solid rgba(255,255,255,.1); color: #ddd; font: 11px/1.5 Inter, system-ui; padding: 7px 10px; border-radius: 9px; white-space: nowrap; transition: opacity .15s; }
 .tip[data-starting-style], .tip[data-ending-style] { opacity: 0; }
 .tip b { color: #fff; }
-.tip .tt { font-weight: 650; color: #fff; padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,.1); }
+/* The window only grows downward for the tooltip, never sideways: a long plan · org title is cut. */
+.tip { max-width: calc(100vw - 12px); box-sizing: border-box; }
+.tip .tt { font-weight: 650; color: #fff; padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,.1); overflow: hidden; text-overflow: ellipsis; }
 .tip .tt span { color: #8b8b95; font-weight: 400; }
 
 /* right-click menu (portalled to <body>) */

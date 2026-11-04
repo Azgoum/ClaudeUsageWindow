@@ -22,9 +22,13 @@ export interface RingView {
   pace: Pace
 }
 
+/** claude.ai plan, from the org's `rate_limit_tier`; null when unknown. */
+export type Plan = 'max' | 'pro' | 'team' | 'enterprise'
+
 export interface OrgSummary {
   uuid: string
   name: string
+  plan: Plan | null
 }
 
 export type ResetEvent = { key: LimitKey; fromUsed: number } & (

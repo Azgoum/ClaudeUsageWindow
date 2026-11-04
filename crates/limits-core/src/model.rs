@@ -37,9 +37,39 @@ impl Usage {
     }
 }
 
+/// claude.ai plan of an org, from its `rate_limit_tier`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Plan {
+    Max,
+    Pro,
+    Team,
+    Enterprise,
+}
+
+impl Plan {
+    /// Maps a raw `rate_limit_tier` (e.g. `default_claude_max_20x`); unknown tiers give `None`.
+    pub fn from_tier(tier: &str) -> Option<Plan> {
+        let t = tier.to_ascii_lowercase();
+        if t.contains("max") {
+            Some(Plan::Max)
+        } else if t.contains("enterprise") {
+            Some(Plan::Enterprise)
+        } else if t.contains("team") || t == "raven" {
+            Some(Plan::Team)
+        } else if t.contains("pro") {
+            Some(Plan::Pro)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Org {
     pub uuid: String,
     pub name: String,
     pub capabilities: Vec<String>,
+    /// `None` when the tier is missing or not recognised.
+    pub plan: Option<Plan>,
 }

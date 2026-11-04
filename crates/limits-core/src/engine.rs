@@ -1,7 +1,7 @@
 use crate::clock::Clock;
 use crate::{
     backoff_delay, choose_org, detect_resets, eligible_orgs, pace, ApiError, ClaudeApi, CredStore,
-    LimitKey, Org, Pace, ResetEvent, SessionCookies, SessionSource, SettingsStore, Usage,
+    LimitKey, Org, Pace, Plan, ResetEvent, SessionCookies, SessionSource, SettingsStore, Usage,
 };
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -55,6 +55,14 @@ pub struct RingView {
 pub struct OrgSummary {
     pub uuid: String,
     pub name: String,
+    /// Serialized lowercase (`"max"`); `null` when the tier is unknown.
+    pub plan: Option<Plan>,
+}
+
+impl From<&Org> for OrgSummary {
+    fn from(o: &Org) -> Self {
+        Self { uuid: o.uuid.clone(), name: o.name.clone(), plan: o.plan }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -153,7 +161,7 @@ async fn poll_opt(f: &mut Option<PollFuture>) -> Result<Usage, ApiError> {
 fn summaries(orgs: &[Org]) -> Vec<OrgSummary> {
     eligible_orgs(orgs)
         .into_iter()
-        .map(|o| OrgSummary { uuid: o.uuid.clone(), name: o.name.clone() })
+        .map(OrgSummary::from)
         .collect()
 }
 
@@ -266,7 +274,7 @@ impl Engine {
         self.state.orgs = summaries(orgs);
         let last_active = self.cookies.as_ref().and_then(|c| c.last_active_org());
         let chosen = choose_org(orgs, self.org_uuid.as_deref(), last_active)
-            .map(|o| OrgSummary { uuid: o.uuid.clone(), name: o.name.clone() });
+            .map(OrgSummary::from);
         match chosen {
             Some(o) => {
                 self.save_org(Some(o.uuid.clone()));
@@ -572,7 +580,7 @@ mod tests {
     }
 
     fn org(uuid: &str, caps: &[&str]) -> Org {
-        Org { uuid: uuid.into(), name: uuid.into(), capabilities: caps.iter().map(|s| s.to_string()).collect() }
+        Org { uuid: uuid.into(), name: uuid.into(), capabilities: caps.iter().map(|s| s.to_string()).collect(), plan: None }
     }
 
     fn default_orgs() -> Vec<Org> {
@@ -580,7 +588,7 @@ mod tests {
     }
 
     fn summary(uuid: &str) -> OrgSummary {
-        OrgSummary { uuid: uuid.into(), name: uuid.into() }
+        OrgSummary { uuid: uuid.into(), name: uuid.into(), plan: None }
     }
 
     struct Setup {
@@ -592,6 +600,8 @@ mod tests {
         source: Option<SessionCookies>,
         delay: Duration,
         orgs_fail: bool,
+        /// Org list served by the API (default: `default_orgs()`).
+        orgs: Option<Vec<Org>>,
     }
 
     impl Default for Setup {
@@ -605,6 +615,7 @@ mod tests {
                 source: None,
                 delay: Duration::ZERO,
                 orgs_fail: false,
+                orgs: None,
             }
         }
     }
@@ -672,7 +683,11 @@ mod tests {
         }
         let api = Arc::new(FakeApi {
             usage: Mutex::new(s.usage.into_iter().collect()),
-            orgs: Mutex::new(if s.orgs_fail { Err(ApiError::Unavailable("offline".into())) } else { Ok(default_orgs()) }),
+            orgs: Mutex::new(if s.orgs_fail {
+                Err(ApiError::Unavailable("offline".into()))
+            } else {
+                Ok(s.orgs.unwrap_or_else(default_orgs))
+            }),
             usage_calls: AtomicUsize::new(0),
             usage_orgs: Mutex::new(Vec::new()),
             delay: s.delay,
@@ -727,6 +742,20 @@ mod tests {
         assert_eq!(rings[1].key, LimitKey::Weekly);
         assert_eq!(s.last_ok, Some(t("2026-11-03T12:00:00Z")));
         assert!(s.error.is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn org_plan_is_published_after_start() {
+        let mut orgs = default_orgs();
+        orgs[0].plan = Some(Plan::Max);
+        orgs[1].plan = Some(Plan::Team);
+        let h = start(Setup { orgs: Some(orgs), ..with_creds() }).await;
+        let s = h.state();
+        assert_eq!(s.org.as_ref().and_then(|o| o.plan), Some(Plan::Max));
+        assert_eq!(s.orgs.iter().map(|o| o.plan).collect::<Vec<_>>(), vec![Some(Plan::Max), Some(Plan::Team)]);
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["org"]["plan"], "max");
+        assert_eq!(v["orgs"][1]["plan"], "team");
     }
 
     #[tokio::test(start_paused = true)]

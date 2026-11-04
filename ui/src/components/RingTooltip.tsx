@@ -6,7 +6,8 @@ import { useNow } from '@/lib/useNow'
 
 interface Props {
   view: RingView
-  orgName: string
+  /** Plan or org name (see `tipTitle`). */
+  title: string
   lastOk: string | null
   lang: Lang
   disabled?: boolean
@@ -16,7 +17,7 @@ interface Props {
 }
 
 /** Hover card under a ring (prototype `.tip`); its text refreshes every second while open. */
-export function RingTooltip({ view, orgName, lastOk, lang, disabled = false, onPopupHeight, children }: Props) {
+export function RingTooltip({ view, title, lastOk, lang, disabled = false, onPopupHeight, children }: Props) {
   const [open, setOpen] = useState(false)
   // Stable, so the per-second re-render doesn't report 0 then h again (shrink/grow flicker).
   const popupRef = useCallback(
@@ -45,7 +46,7 @@ export function RingTooltip({ view, orgName, lastOk, lang, disabled = false, onP
         >
           <Tooltip.Popup ref={popupRef} className="tip">
             <div className="tt">
-              {orgName} {ago && <span>· {ago}</span>}
+              {title} {ago && <span>· {ago}</span>}
             </div>
             {m.kind === 'idle' ? (
               <>

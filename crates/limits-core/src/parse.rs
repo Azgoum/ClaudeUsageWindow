@@ -1,6 +1,9 @@
-use crate::model::{Org, Usage, Window};
+use crate::model::{Org, Plan, Usage, Window};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static UNMAPPED_TIER_LOGGED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -96,12 +99,21 @@ pub fn parse_orgs(body: &str) -> Result<Vec<Org>, ParseError> {
         .filter_map(|o| {
             let uuid = o.get("uuid")?.as_str()?.to_owned();
             let name = o.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
-            let capabilities = o
+            let capabilities: Vec<String> = o
                 .get("capabilities")
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(|c| c.as_str().map(str::to_owned)).collect())
                 .unwrap_or_default();
-            Some(Org { uuid, name, capabilities })
+            let tier = o.get("rate_limit_tier").and_then(Value::as_str);
+            let plan = tier.and_then(Plan::from_tier);
+            if let (None, Some(tier)) = (plan, tier) {
+                // A tier is not a secret; logged once per run so a new plan family can be mapped.
+                let chat = capabilities.iter().any(|c| c == "chat");
+                if chat && !UNMAPPED_TIER_LOGGED.swap(true, Ordering::Relaxed) {
+                    tracing::info!(tier, "unrecognised rate_limit_tier; showing the org name");
+                }
+            }
+            Some(Org { uuid, name, capabilities, plan })
         })
         .collect())
 }
@@ -177,6 +189,32 @@ mod tests {
         let o = parse_orgs(ORGS_TWO).unwrap();
         assert_eq!(o.len(), 2);
         assert!(o[0].capabilities.contains(&"chat".into()));
+    }
+    #[test]
+    fn orgs_parse_rate_limit_tier() {
+        let o = parse_orgs(
+            r#"[{"uuid":"a","name":"A","capabilities":["chat"],"rate_limit_tier":"default_claude_max_20x"},
+                {"uuid":"b","name":"B","capabilities":["chat"]},
+                {"uuid":"c","name":"C","capabilities":["chat"],"rate_limit_tier":"something_new"},
+                {"uuid":"d","name":"D","capabilities":["chat"],"rate_limit_tier":null}]"#,
+        )
+        .unwrap();
+        assert_eq!(o.iter().map(|o| o.plan).collect::<Vec<_>>(), vec![Some(Plan::Max), None, None, None]);
+        let two = parse_orgs(ORGS_TWO).unwrap();
+        assert_eq!(two[0].plan, Some(Plan::Max));
+        assert_eq!(two[1].plan, None, "API tiers are not plans");
+    }
+    #[test]
+    fn plan_from_tier_maps_known_families() {
+        assert_eq!(Plan::from_tier("default_claude_max_5x"), Some(Plan::Max));
+        assert_eq!(Plan::from_tier("default_claude_max_20x"), Some(Plan::Max));
+        assert_eq!(Plan::from_tier("default_claude_pro"), Some(Plan::Pro));
+        assert_eq!(Plan::from_tier("default_claude_team"), Some(Plan::Team));
+        assert_eq!(Plan::from_tier("raven"), Some(Plan::Team));
+        assert_eq!(Plan::from_tier("Default_Claude_Enterprise"), Some(Plan::Enterprise));
+        assert_eq!(Plan::from_tier("default_claude_ai"), None);
+        assert_eq!(Plan::from_tier("auto_prepaid_tier_0"), None);
+        assert_eq!(Plan::from_tier(""), None);
     }
     #[test]
     fn both_active_parses_session() {

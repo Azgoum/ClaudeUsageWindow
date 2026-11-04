@@ -10,8 +10,9 @@ import {
   tickAngle,
   tickOpacity,
   tipModel,
+  tipTitle,
 } from '../ring'
-import type { RingView } from '../types'
+import type { OrgSummary, RingView } from '../types'
 
 const now = new Date(2026, 10, 3, 11, 30).getTime()
 const H = 3_600_000
@@ -117,5 +118,29 @@ describe('tipModel', () => {
     const m = tipModel(ring({ resetsAt: new Date(now - H).toISOString() }), now, 'en')
     if (m.kind !== 'active') throw new Error('expected active')
     expect(m.resets).toMatch(/\(in 0 s\)$/)
+  })
+})
+
+describe('tipTitle', () => {
+  const personal: OrgSummary = { uuid: 'p', name: "jane@example.com's Organization", plan: 'max' }
+  const team: OrgSummary = { uuid: 't', name: 'Acme Studio', plan: 'team' }
+  it('shows the plan only for a single org', () => {
+    expect(tipTitle(personal, [personal], 'en')).toBe('Max plan')
+    expect(tipTitle({ ...team }, [team], 'fr')).toBe('Forfait Team')
+  })
+  it('adds the org name when there are several orgs', () => {
+    expect(tipTitle(team, [personal, team], 'en')).toBe('Team plan · Acme Studio')
+    expect(tipTitle({ ...team, plan: 'enterprise' }, [personal, team], 'fr')).toBe('Forfait Enterprise · Acme Studio')
+  })
+  it("never repeats a personal org's \"<name>'s Organization\"", () => {
+    expect(tipTitle(personal, [personal, team], 'en')).toBe('Max plan')
+    expect(tipTitle({ ...personal, plan: 'pro' }, [personal, team], 'fr')).toBe('Forfait Pro')
+  })
+  it('falls back to the org name when the plan is unknown', () => {
+    expect(tipTitle({ ...team, plan: null }, [team], 'en')).toBe('Acme Studio')
+    expect(tipTitle({ ...personal, plan: null }, [personal, team], 'fr')).toBe("jane@example.com's Organization")
+    // An unexpected value from a newer backend is never shown raw.
+    expect(tipTitle({ ...team, plan: 'galaxy' as never }, [team], 'en')).toBe('Acme Studio')
+    expect(tipTitle(null, [], 'en')).toBe('')
   })
 })

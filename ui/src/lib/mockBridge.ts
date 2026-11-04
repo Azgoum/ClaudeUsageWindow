@@ -25,8 +25,9 @@ declare global {
 const H = 3_600_000
 const iso = (ms: number) => new Date(ms).toISOString()
 
-const ORG_PERSONAL: OrgSummary = { uuid: 'org-personal', name: 'Max plan · Personal' }
-const ORG_TEAM: OrgSummary = { uuid: 'org-team', name: 'Team · Acme Studio' }
+// Named like real claude.ai orgs: a personal org is "<email>'s Organization".
+const ORG_PERSONAL: OrgSummary = { uuid: 'org-personal', name: "jane@example.com's Organization", plan: 'max' }
+const ORG_TEAM: OrgSummary = { uuid: 'org-team', name: 'Acme Studio', plan: 'team' }
 
 /** Next Friday 23:59 local time (always in the future). */
 function nextFriday2359(now: number): number {

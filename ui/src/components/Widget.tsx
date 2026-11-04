@@ -15,7 +15,7 @@ import { playPlanned } from '@/anim/planned'
 import { stopStage } from '@/anim/stage'
 import { playSurprise, stopGlow } from '@/anim/surprise'
 import { fitWindow, startDrag } from '@/lib/bridge'
-import { errLine, isNearLimit } from '@/lib/ring'
+import { errLine, isNearLimit, tipTitle } from '@/lib/ring'
 import { maxRoom, menuRoom, tipRoom, withRingRoom, type RingRooms } from '@/lib/room'
 import type { AppState, Lang, LimitKey, Prefs, ResetEvent } from '@/lib/types'
 import { useNow } from '@/lib/useNow'
@@ -283,7 +283,7 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
               <RingTooltip
                 key={r.key}
                 view={r}
-                orgName={state.org?.name ?? ''}
+                title={tipTitle(state.org, state.orgs, lang)}
                 lastOk={state.lastOk}
                 lang={lang}
                 disabled={menuOpen || dragging}
