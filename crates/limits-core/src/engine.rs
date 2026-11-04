@@ -138,6 +138,8 @@ struct Engine {
     /// Latest successful usage, kept to recompute pace on failed ticks.
     last_usage: Option<Usage>,
     failures: u32,
+    /// Fingerprint of the cookie claude.ai last rejected: Connect never sends it again.
+    rejected: Option<u64>,
     inflight: Option<PollFuture>,
     next_poll: Option<Instant>,
     next_tick: Option<Instant>,
@@ -191,6 +193,7 @@ impl Engine {
             prev: None,
             last_usage: None,
             failures: 0,
+            rejected: None,
             inflight: None,
             next_poll: None,
             next_tick: None,
@@ -358,6 +361,7 @@ impl Engine {
                 self.prev = Some(cur.clone());
                 self.last_usage = Some(cur);
                 self.failures = 0;
+                self.rejected = None;
                 self.refresh_rings();
                 self.state.last_ok = Some(now);
                 self.state.error = None;
@@ -375,6 +379,7 @@ impl Engine {
                         self.start_poll().await;
                     }
                     None => {
+                        self.rejected = current;
                         self.prev = None;
                         self.next_poll = None;
                         self.state.error = None;
@@ -454,6 +459,7 @@ impl Engine {
                 }
                 self.save_org(None);
                 self.cookies = None;
+                self.rejected = None;
                 self.prev = None;
                 self.last_usage = None;
                 self.failures = 0;
@@ -472,10 +478,16 @@ impl Engine {
             return;
         }
         self.next_tick = Some(now + CONNECT_TICK);
-        let Some(c) = self.read_source() else { return };
+        // Until the user logs in again, Firefox still holds the cookie claude.ai just rejected.
+        let Some(c) = self.read_source().filter(|c| Some(c.fingerprint()) != self.rejected) else {
+            return;
+        };
         let orgs = match self.deps.api.orgs(&c).await {
             Ok(orgs) => orgs,
             Err(e) => {
+                if matches!(e, ApiError::Expired) {
+                    self.rejected = Some(c.fingerprint());
+                }
                 tracing::warn!("cannot list organizations yet: {}", describe(&e));
                 return;
             }
@@ -1019,6 +1031,26 @@ mod tests {
         assert_eq!(h.calls(), 1);
         h.step(120).await;
         assert_eq!(h.calls(), 1, "no polling while expired");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reconnect_skips_rejected_cookie() {
+        let mut h = start(Setup {
+            usage: vec![Err(ApiError::Expired)],
+            source: Some(cookies("sk-old", Some("org-b"))),
+            ..with_creds()
+        })
+        .await;
+        assert_eq!(h.state().conn, Conn::Expired);
+        let before = h.orgs_calls();
+        h.send(Command::Connect).await;
+        h.step(20).await;
+        assert_eq!(h.orgs_calls(), before, "the rejected cookie is never sent again");
+        assert_eq!(h.state().conn, Conn::Waiting);
+        h.source.set(Some(cookies("sk-new", Some("org-b"))));
+        h.step(2).await;
+        assert_eq!(h.state().conn, Conn::Connected);
+        assert_eq!(h.orgs_calls(), before + 1);
     }
 
     #[tokio::test(start_paused = true)]
