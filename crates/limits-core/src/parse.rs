@@ -21,9 +21,13 @@ fn clamp_pct(v: Option<f64>) -> f64 {
     }
 }
 
+/// Rounded to the nearest minute: claude.ai jitters `resets_at` by a sub-second around the
+/// hour (23:59:59.65 on one poll, 00:00:00.4 on the next), which would flip a "00:59"/"01:00"
+/// label. A shift of at most 30 s changes neither reset detection (60 s tolerance) nor pace.
 fn parse_time(v: Option<&Value>) -> Option<DateTime<Utc>> {
     let s = v?.as_str()?;
-    DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&Utc))
+    let ms = DateTime::parse_from_rfc3339(s).ok()?.timestamp_millis();
+    DateTime::from_timestamp_millis((ms + 30_000).div_euclid(60_000) * 60_000)
 }
 
 fn window_from(v: &Value, pct_key: &str) -> Window {
@@ -120,7 +124,8 @@ mod tests {
         assert_eq!(u.session.used, 0.0);
         assert!(u.session.resets_at.is_none());
         assert_eq!(u.weekly.used, 1.0);
-        assert_eq!(u.weekly.resets_at.unwrap().to_rfc3339(), "2026-11-06T23:59:59.657790+00:00");
+        // Rounded to the nearest minute: claude.ai jitters around the hour.
+        assert_eq!(u.weekly.resets_at.unwrap(), t("2026-11-07T00:00:00Z"));
     }
     #[test]
     fn both_null_is_idle_not_error() {
@@ -146,6 +151,26 @@ mod tests {
         let u = parse_usage(r#"{"five_hour":{"utilization":104,"resets_at":"2026-11-03T13:00:00Z"},"seven_day":{"utilization":-3.5,"resets_at":"2026-11-06T23:59:59.000001+00:00"}}"#).unwrap();
         assert_eq!(u.session.used, 100.0);
         assert_eq!(u.weekly.used, 0.0);
+        assert_eq!(u.session.resets_at, Some(t("2026-11-03T13:00:00Z")));
+        assert_eq!(u.weekly.resets_at, Some(t("2026-11-07T00:00:00Z")));
+    }
+    fn t(s: &str) -> DateTime<Utc> {
+        s.parse().unwrap()
+    }
+    fn reset_of(s: &str) -> Option<DateTime<Utc>> {
+        parse_usage(&format!(r#"{{"five_hour":null,"seven_day":{{"utilization":1,"resets_at":"{s}"}}}}"#))
+            .unwrap()
+            .weekly
+            .resets_at
+    }
+    #[test]
+    fn resets_at_rounds_to_nearest_minute() {
+        let midnight = Some(t("2026-11-07T00:00:00Z"));
+        assert_eq!(reset_of("2026-11-06T23:59:59.657790+00:00"), midnight);
+        assert_eq!(reset_of("2026-11-07T00:00:00.400+00:00"), midnight);
+        assert_eq!(reset_of("2026-11-07T00:00:29.999Z"), midnight);
+        assert_eq!(reset_of("2026-11-07T00:00:30Z"), Some(t("2026-11-07T00:01:00Z")));
+        assert_eq!(reset_of("not a date"), None);
     }
     #[test]
     fn orgs_parse() {
