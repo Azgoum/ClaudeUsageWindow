@@ -13,7 +13,7 @@ import { lockKeys, release, type Locks } from '@/anim/lock'
 import { pillFor, type PillSpec } from '@/anim/pill'
 import { playPlanned } from '@/anim/planned'
 import { stopStage } from '@/anim/stage'
-import { playSurprise } from '@/anim/surprise'
+import { playSurprise, stopGlow } from '@/anim/surprise'
 import { fitWindow, startDrag } from '@/lib/bridge'
 import { errLine, isNearLimit } from '@/lib/ring'
 import { maxRoom, menuRoom, tipRoom, withRingRoom, type RingRooms } from '@/lib/room'
@@ -138,6 +138,8 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
   if (!connected && Object.keys(locks).length > 0) setLocks({})
   // Mirror of `locks` for the async callbacks: which batch owns each ring right now.
   const owner = useRef<Locks>({})
+  // Rings being animated, so a disconnect can stop them after React has cleared the ring refs.
+  const animating = useRef(new Set<Element>())
   const pill = useRef<PillApi>(null)
   const sparks = useRef<SparksApi>(null)
 
@@ -148,7 +150,8 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
     owner.current = lockKeys(owner.current, events.map((e) => e.key), seq)
     let shown = false
     const showPill = () => {
-      if (shown || !spec) return
+      // Only while this batch still owns a ring: never after a disconnect or a newer batch.
+      if (shown || !spec || !Object.values(owner.current).includes(seq)) return
       shown = true
       pill.current?.show(spec.kind, spec.text, spec.holdMs)
     }
@@ -157,16 +160,24 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
       let safety: ReturnType<typeof setTimeout> | undefined
       const done = () => {
         clearTimeout(safety)
-        if (owner.current[ev.key] !== seq) return // a newer batch owns this ring now
+        if (owner.current[ev.key] !== seq) return // a newer batch owns this ring, or the rings are gone
+        // An animation that stalled (window minimized) never reached its pill moment: the batch
+        // still gets its pill (before the release, while the batch still owns the ring).
+        showPill()
         owner.current = release(owner.current, ev.key, seq)
-        stopStage(h?.svg ?? null)
+        if (svg) animating.current.delete(svg)
+        stopStage(svg)
         h?.paint()
         flushSync(() => setLocks((l) => release(l, ev.key, seq)))
       }
       if (!h) {
-        done()
+        // No ring to animate: just unlock, after the effect (flushSync can't run inside one).
+        owner.current = release(owner.current, ev.key, seq)
+        queueMicrotask(() => setLocks((l) => release(l, ev.key, seq)))
         continue
       }
+      const svg = h.svg
+      if (svg) animating.current.add(svg)
       safety = setTimeout(done, LOCK_SAFETY_MS)
       const p =
         ev.kind === 'planned'
@@ -180,8 +191,13 @@ export function Widget({ state, prefs, lang, onLang, onPrefs, ringRefs }: Props)
 
   useEffect(() => {
     if (connected) return
-    for (const h of [sessionRef.current, weeklyRef.current]) stopStage(h?.svg ?? null)
     owner.current = {}
+    for (const svg of animating.current) stopStage(svg)
+    animating.current.clear()
+    // No glow, sparks or pill left over the connect panel.
+    stopGlow()
+    sparks.current?.clear()
+    pill.current?.hide()
   }, [connected, sessionRef, weeklyRef])
   const setRoot = useCallback(
     (el: HTMLDivElement | null) => {

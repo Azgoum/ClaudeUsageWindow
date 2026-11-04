@@ -27,3 +27,18 @@ export function pillFor(events: readonly ResetEvent[], lang: Lang): PillSpec | n
   }
   return { kind, text, holdMs: HOLD[kind] }
 }
+
+/** Pill base font size and the smallest it may shrink to (px). */
+export const PILL_FONT = 10
+export const PILL_FONT_MIN = 8.5
+
+/**
+ * Font size that keeps the pill on one line inside `avail` px, or null if the base size fits.
+ * `width` is the pill's measured width at the base size and `chrome` its padding + border,
+ * which don't scale with the font. Rounded down to a quarter px, never below the floor.
+ */
+export function pillFontSize(width: number, avail: number, chrome: number): number | null {
+  if (width <= avail) return null
+  const fit = (PILL_FONT * (avail - chrome)) / (width - chrome)
+  return Math.max(PILL_FONT_MIN, Math.floor(fit * 4) / 4)
+}

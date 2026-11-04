@@ -205,9 +205,10 @@
 .mock-desktop::before { content:""; position:absolute; width:260px; height:260px; border-radius:50%; background:#d97757; filter: blur(80px); opacity:.3; left:30%; top:30%; }
 .mock-desktop .wd { left: auto; right: 16px; top: 16px; }
 /* ---------- reset animations (Task 14; prototype .chip / .spark) ---------- */
-/* The pill sits inside the widget near the bottom: the window is exactly the widget's box and the
-   longest French texts need two lines. */
-.wd .chip { position: absolute; left: 50%; bottom: 7px; transform: translateX(-50%); width: max-content; max-width: calc(100% - 16px); white-space: normal; text-align: center; line-height: 1.25; font-size: 10.5px; font-weight: 650; padding: 4px 10px; border-radius: 99px; opacity: 0; pointer-events: none; z-index: 3; }
+/* The pill sits in the free 24 px band above the rings (the prototype straddles the top border, but
+   the window is exactly the widget's box): one line, y = 2-22, clear of the arcs and labels.
+   Pill.show shrinks the font of text too wide for the widget (French chipW). */
+.wd .chip { position: absolute; left: 50%; top: 2px; transform: translateX(-50%); width: max-content; white-space: nowrap; line-height: 1.2; font-size: 10px; font-weight: 650; padding: 3px 8px; border-radius: 99px; opacity: 0; pointer-events: none; z-index: 3; }
 .wd .chip.calm { background: rgba(20,40,32,.9); color: #a7f3d0; border: 1px solid rgba(52,211,153,.45); }
 .wd .chip.gold { background: rgba(48,40,10,.92); color: #fde68a; border: 1px solid rgba(250,204,21,.55); box-shadow: 0 0 18px rgba(250,204,21,.35); }
 .tauri .wd .chip.gold { box-shadow: 0 0 12px rgba(250,204,21,.3); }

@@ -12,6 +12,12 @@ export const SURPRISE_PILL_AT = 640
 
 let glow: AnimationPlaybackControls | undefined
 
+/** Ends the gold glow at once (rings gone: nothing may linger over the connect panel). */
+export function stopGlow() {
+  glow?.cancel()
+  glow = undefined
+}
+
 /** The widget's gold glow (an overlay drawn inside the border, see `.wd .glow`), 4.2 s. */
 function glowWidget(widgetEl: HTMLElement) {
   const el = widgetEl.querySelector<HTMLElement>('.glow')

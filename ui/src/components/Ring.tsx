@@ -71,6 +71,7 @@ export function Ring({ view: live, lang, now, held = false, index = 0, ref }: Pr
       get ok() {
         return ok.current
       },
+      // Keep in sync with the JSX below: both map a view to the same attributes.
       paint() {
         // Same values React renders (prototype `paintRings`); the arc eases from where the
         // animation left it and the colour fades through the CSS transitions.

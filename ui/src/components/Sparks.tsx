@@ -7,6 +7,8 @@ export interface SparksApi {
    * widget's padding-box px) within the first `arcFraction` of a turn from 12 o'clock.
    */
   burst(center: { x: number; y: number }, radius: number, arcFraction: number, n?: number): void
+  /** Removes every spark still in flight. */
+  clear(): void
 }
 
 const COLORS = ['#facc15', '#fde68a', '#fb923c', '#fff']
@@ -17,6 +19,9 @@ export function Sparks({ ref }: { ref?: Ref<SparksApi> }) {
   useImperativeHandle(
     ref,
     () => ({
+      clear() {
+        layer.current?.replaceChildren()
+      },
       burst(center, radius, arcFraction, n = 30) {
         const el = layer.current
         if (!el) return
