@@ -12,7 +12,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, WindowEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, RunEvent, State, WebviewWindow,
+    WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt;
 use tokio::sync::{mpsc, watch};
@@ -314,9 +315,23 @@ fn fit_window(
     Ok(b.offset_y as f64 / scale)
 }
 
+/// If the normal exit hasn't ended the process after this long (a hung WebView2 teardown),
+/// it is ended outright: Quit must never leave an invisible process behind.
+const EXIT_FALLBACK: Duration = Duration::from_secs(3);
+
+fn request_exit(app: &AppHandle, from: &'static str) {
+    tracing::info!(from, "quit requested");
+    app.exit(0);
+    std::thread::spawn(|| {
+        std::thread::sleep(EXIT_FALLBACK);
+        tracing::warn!("exit still pending after 3 s; ending the process");
+        std::process::exit(0);
+    });
+}
+
 #[tauri::command]
 fn quit(app: AppHandle) {
-    app.exit(0);
+    request_exit(&app, "menu");
 }
 
 /// Work area (monitor minus taskbar), physical pixels.
@@ -469,7 +484,7 @@ pub fn run() {
         )
         .setup(setup)
         .on_window_event(|w, e| match e {
-            WindowEvent::CloseRequested { .. } => w.app_handle().exit(0),
+            WindowEvent::CloseRequested { .. } => request_exit(w.app_handle(), "close button"),
             WindowEvent::Moved(pos) if w.label() == MAIN => on_moved(w.app_handle(), *pos),
             _ => {}
         })
@@ -483,9 +498,14 @@ pub fn run() {
             fit_window,
             quit
         ])
-        .run(tauri::generate_context!());
-    if let Err(e) = result {
-        tracing::error!("tauri runtime failed: {e}");
+        .build(tauri::generate_context!());
+    match result {
+        Ok(app) => app.run(|_, e| {
+            if let RunEvent::Exit = e {
+                tracing::info!("exiting");
+            }
+        }),
+        Err(e) => tracing::error!("tauri runtime failed: {e}"),
     }
 }
 
