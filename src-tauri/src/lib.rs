@@ -99,6 +99,15 @@ pub struct DevEnv {
     pub autoconnect: bool,
     /// `LIMITRINGS_FAKE_NO_FIREFOX=1`: the launcher reports Firefox as not installed.
     pub no_firefox: bool,
+    /// `LIMITRINGS_DEV_AUTOSTART=1`: let a debug run register itself at logon (testing only).
+    pub autostart: bool,
+}
+
+/// Only release builds touch the logon Run value: a debug exe loads the dev server URL, so
+/// registering it would open a broken window at every logon (and replace an installed
+/// release's entry). A debug run opts in with `LIMITRINGS_DEV_AUTOSTART=1`, never when isolated.
+pub fn manages_autostart(debug: bool, dev: &DevEnv) -> bool {
+    !debug || (dev.autostart && !dev.fake_session)
 }
 
 impl DevEnv {
@@ -116,6 +125,7 @@ impl DevEnv {
             fake_session: on("LIMITRINGS_FAKE_SESSION"),
             autoconnect: on("LIMITRINGS_AUTOCONNECT"),
             no_firefox: on("LIMITRINGS_FAKE_NO_FIREFOX"),
+            autostart: on("LIMITRINGS_DEV_AUTOSTART"),
         }
     }
 
@@ -188,7 +198,7 @@ struct Shell {
     state: watch::Receiver<AppState>,
     /// Same lock as the engine's clone, so shell and engine writes never clobber each other.
     settings: SettingsStore,
-    /// False in isolated dev runs: the debug exe must never be registered at logon.
+    /// See `manages_autostart`: the debug exe must never be registered at logon.
     manage_autostart: bool,
     move_gen: AtomicU64,
     /// Resting position while the window is grown for a tooltip or menu (never persisted).
@@ -403,7 +413,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let first_run = !path.exists();
     let store = SettingsStore::new(path);
     let settings = store.load();
-    let manage_autostart = !dev.fake_session;
+    let manage_autostart = manages_autostart(cfg!(debug_assertions), &dev);
 
     if first_run {
         tracing::info!("first run: applying defaults");
@@ -572,6 +582,7 @@ mod tests {
             "LIMITRINGS_FAKE_SESSION" => Some("1".to_string()),
             "LIMITRINGS_AUTOCONNECT" => Some("0".to_string()),
             "LIMITRINGS_FAKE_NO_FIREFOX" => Some("1".to_string()),
+            "LIMITRINGS_DEV_AUTOSTART" => Some("1".to_string()),
             _ => None,
         };
         assert_eq!(
@@ -581,11 +592,24 @@ mod tests {
                 fake_session: true,
                 autoconnect: false,
                 no_firefox: true,
+                autostart: true,
             }
         );
         assert_eq!(DevEnv::from_vars(|_| None), DevEnv::default());
         let bad = |k: &str| (k == "LIMITRINGS_BASE_URL").then(|| "not a url".to_string());
         assert_eq!(DevEnv::from_vars(bad).base_url, None);
+    }
+
+    #[test]
+    fn autostart_managed_in_release_or_on_dev_opt_in() {
+        let plain = DevEnv::default();
+        let opt_in = DevEnv { autostart: true, ..DevEnv::default() };
+        assert!(manages_autostart(false, &plain), "release");
+        assert!(manages_autostart(false, &opt_in), "release ignores the switch");
+        assert!(!manages_autostart(true, &plain), "plain debug run");
+        assert!(manages_autostart(true, &opt_in), "debug run that opted in");
+        let isolated = DevEnv { fake_session: true, ..opt_in };
+        assert!(!manages_autostart(true, &isolated), "isolated dev runs never");
     }
 
     #[test]

@@ -8,6 +8,8 @@ Debug builds of the Tauri shell honor:
 
 - `LIMITRINGS_BASE_URL=http://127.0.0.1:8787` - `HttpApi` uses this base.
 - `LIMITRINGS_FAKE_SESSION=1` - `FixedSource` returns a fake session 5 s after login is opened.
+- `LIMITRINGS_DEV_AUTOSTART=1` - let a debug run manage Start with Windows (off by default: a
+  debug exe registered at logon would open a broken window; release builds always manage it).
 
 Endpoints: `GET /api/organizations`, `GET /api/organizations/:uuid/usage` (any cookie accepted),
 `GET /_ctl` (control page), `GET /_ctl/state` (scripted state as JSON), `POST /_ctl/:action`.
