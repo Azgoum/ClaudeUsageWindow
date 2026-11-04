@@ -1,19 +1,6 @@
-# State file (contains personal data)
+# Leftovers of the retired Python app (state.json holds personal data)
 state.json
-
-# Python
 __pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-.Python
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
-eggs/
-.eggs/
 
 # IDE
 .vscode/
@@ -31,6 +18,8 @@ Thumbs.db
 # Brainstorm / browser-test artifacts
 .superpowers/
 .playwright-mcp/
+# Screenshots of the real widget show the account's org name (an email address)
+shots/
 
 # Rust
 target/

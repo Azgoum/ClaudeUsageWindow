@@ -35,6 +35,9 @@ until the reset. The ring color compares your actual usage to that pace:
 Download the installer (`.exe`) from the [Releases page](https://github.com/Azgoum/ClaudeUsageWindow/releases)
 and run it.
 
+No install wanted? The same page has a **portable zip** (`limitrings-windows-x64.zip`): unzip it anywhere
+and run `limitrings.exe`. It needs the WebView2 runtime, which Windows 10 and 11 normally already have.
+
 Releases are **not code-signed**: a code-signing certificate costs money every year, and this is a free
 open-source side project. Windows SmartScreen will therefore warn you ("Windows protected your PC").
 Click **More info**, then **Run anyway**. If you prefer, [build it from source](#build-from-source) and
@@ -49,6 +52,14 @@ Exactly what is read: the **claude.ai cookies from your Firefox profile** (the `
 to a temporary file because Firefox locks it). Nothing else in your profile is touched. The cookies are
 then stored in **Windows Credential Manager**, never in a plain file, and are **sent only to claude.ai**.
 "Disconnect" in the menu deletes them.
+
+## Uninstall
+
+**Choose Disconnect in the menu before uninstalling.** The uninstaller (or deleting the portable folder)
+removes the app, but not the stored session in Credential Manager (entries named `limitrings`) nor the
+"Start with Windows" entry. So: turn off **Start with Windows**, choose **Disconnect**, then uninstall.
+Already uninstalled? Delete the `limitrings` entries in Credential Manager and the `limitrings` value under
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` by hand.
 
 ## Heads up: undocumented endpoint, terms of service
 

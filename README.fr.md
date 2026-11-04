@@ -35,6 +35,10 @@ régulier jusqu'à la réinitialisation. La couleur de l'anneau compare votre co
 Téléchargez l'installateur (`.exe`) depuis la [page des versions](https://github.com/Azgoum/ClaudeUsageWindow/releases)
 puis lancez-le.
 
+Vous préférez ne rien installer ? La même page propose une **version portable** (`limitrings-windows-x64.zip`) :
+décompressez-la où vous voulez et lancez `limitrings.exe`. Il faut le runtime WebView2, normalement déjà présent
+sur Windows 10 et 11.
+
 Les versions ne sont **pas signées** : un certificat de signature de code coûte cher chaque année, et ceci est un
 projet libre et gratuit. Windows SmartScreen affichera donc un avertissement (« Windows a protégé votre PC »).
 Cliquez sur **Informations complémentaires**, puis sur **Exécuter quand même**. Si vous préférez, vous pouvez
@@ -49,6 +53,15 @@ Ce qui est lu, précisément : les **cookies claude.ai de votre profil Firefox**
 copié dans un fichier temporaire car Firefox le verrouille). Rien d'autre dans votre profil n'est touché. Les
 cookies sont ensuite stockés dans le **Gestionnaire d'informations d'identification de Windows**, jamais dans
 un fichier en clair, et ne sont **envoyés qu'à claude.ai**. « Se déconnecter » dans le menu les supprime.
+
+## Désinstallation
+
+**Choisissez « Se déconnecter » dans le menu avant de désinstaller.** Le désinstalleur (ou la suppression du
+dossier portable) retire l'application, mais pas la session enregistrée dans le Gestionnaire d'informations
+d'identification (entrées nommées `limitrings`), ni le lancement au démarrage de Windows. Donc : décochez
+**Lancer au démarrage de Windows**, choisissez **Se déconnecter**, puis désinstallez. Déjà désinstallé ?
+Supprimez à la main les entrées `limitrings` du Gestionnaire d'informations d'identification et la valeur
+`limitrings` sous `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
 ## À savoir : point d'accès non documenté, conditions d'utilisation
 
