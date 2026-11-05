@@ -48,7 +48,11 @@ export function RingTooltip({ view, title, lastOk, lang, disabled = false, onPop
             <div className="tt">
               {title} {ago && <span>· {ago}</span>}
             </div>
-            {m.kind === 'idle' ? (
+            {m.kind === 'nolimit' ? (
+              <>
+                <b>{m.title}</b> · {m.line}
+              </>
+            ) : m.kind === 'idle' ? (
               <>
                 <b>{m.title}</b> · {m.line}
                 <br />

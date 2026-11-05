@@ -12,7 +12,10 @@ export const arcOffset = (used: number): number => CIRC * (1 - clamp100(used) / 
 export const tickAngle = (expected: number | null): number => (expected ?? 0) * 3.6
 export const tickOpacity = (expected: number | null): number => (expected == null ? 0 : 0.95)
 export const ringNumber = (used: number): number => Math.floor(used)
-export const numFill = (r: RingView): string => (r.pace === 'idle' ? '#8b8b95' : PACE_COLOR[r.pace])
+export const numFill = (r: RingView): string => (r.noLimit || r.pace === 'idle' ? '#8b8b95' : PACE_COLOR[r.pace])
+
+/** Arc colour: a faint grey for a ring without limit, else the pace colour. */
+export const arcStroke = (r: RingView): string => (r.noLimit ? 'rgba(255,255,255,.18)' : PACE_COLOR[r.pace])
 
 export const isNearLimit = (rings: readonly RingView[] | null): boolean =>
   !!rings?.some((r) => r.used >= 90)
@@ -24,6 +27,7 @@ export const errLine = (retryAt: string, now: number, lang: Lang): string =>
   t(lang).err(fmtDur(Date.parse(retryAt) - now, lang))
 
 export type TipModel =
+  | { kind: 'nolimit'; title: string; line: string }
   | { kind: 'idle'; title: string; line: string; sub: string }
   | {
       kind: 'active'
@@ -39,6 +43,7 @@ export function tipTitle(org: OrgSummary | null, orgs: readonly OrgSummary[], la
   const L = t(lang)
   const labels: Record<Plan, string> = {
     max: L.planMax,
+    ultra: L.planUltra,
     pro: L.planPro,
     team: L.planTeam,
     enterprise: L.planEnterprise,
@@ -56,6 +61,7 @@ const PERSONAL_ORG = /['’]s Organization$/
 export function tipModel(r: RingView, now: number, lang: Lang): TipModel {
   const L = t(lang)
   const title = r.key === 'session' ? L.s : L.w
+  if (r.noLimit) return { kind: 'nolimit', title, line: L.noLimitTip }
   if (r.pace === 'idle') return { kind: 'idle', title, line: L.noSession, sub: L.startsNext }
   const exp = r.expected
   const usage = L.used(ringNumber(r.used)) + (exp != null ? ` · ${L.expected(Math.round(exp))}` : '')

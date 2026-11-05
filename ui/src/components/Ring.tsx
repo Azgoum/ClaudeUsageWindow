@@ -1,9 +1,8 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from 'react'
 import { prefersReducedMotion, run } from '@/anim/stage'
-import { PACE_COLOR } from '@/lib/colors'
 import { resetLine } from '@/lib/format'
 import { t } from '@/lib/i18n'
-import { CIRC, arcOffset, numFill, ringNumber, tickAngle, tickOpacity } from '@/lib/ring'
+import { CIRC, arcOffset, arcStroke, numFill, ringNumber, tickAngle, tickOpacity } from '@/lib/ring'
 import type { Lang, RingView } from '@/lib/types'
 
 /** Live DOM nodes of one ring, for the reset animations (Task 14). */
@@ -77,10 +76,10 @@ export function Ring({ view: live, lang, now, held = false, index = 0, ref }: Pr
         // animation left it and the colour fades through the CSS transitions.
         const v = latest.current
         arc.current?.setAttribute('stroke-dashoffset', String(arcOffset(v.used)))
-        arc.current?.setAttribute('stroke', PACE_COLOR[v.pace])
+        arc.current?.setAttribute('stroke', arcStroke(v))
         num.current?.setAttribute('fill', numFill(v))
         const text = num.current?.firstChild
-        if (text) text.nodeValue = String(ringNumber(v.used))
+        if (text && !v.noLimit) text.nodeValue = String(ringNumber(v.used))
         if (tick.current) {
           tick.current.style.opacity = String(tickOpacity(v.expected))
           tick.current.style.transform = `rotate(${tickAngle(v.expected)}deg)`
@@ -139,7 +138,7 @@ export function Ring({ view: live, lang, now, held = false, index = 0, ref }: Pr
           cy="32"
           r="23"
           fill="none"
-          stroke={PACE_COLOR[view.pace]}
+          stroke={arcStroke(view)}
           strokeWidth="6"
           strokeLinecap="round"
           transform="rotate(-90 32 32)"
@@ -181,26 +180,32 @@ export function Ring({ view: live, lang, now, held = false, index = 0, ref }: Pr
           ref={num}
           className="num"
           x="32"
-          y="36.5"
+          y={view.noLimit ? 39 : 36.5}
           textAnchor="middle"
-          fontSize="13.5"
+          fontSize={view.noLimit ? 24 : 13.5}
           fontWeight="750"
           fontFamily="Inter, Segoe UI, system-ui"
           fill={numFill(view)}
         >
-          {ringNumber(view.used)}
-          <tspan fontSize="9" dx="1">
-            %
-          </tspan>
+          {view.noLimit ? (
+            '∞'
+          ) : (
+            <>
+              {ringNumber(view.used)}
+              <tspan fontSize="9" dx="1">
+                %
+              </tspan>
+            </>
+          )}
         </text>
       </svg>
       <div className="name">
-        {view.key === 'session' ? L.s : L.w}
+        {view.noLimit ? L.noLimit : view.key === 'session' ? L.s : L.w}
         <span ref={ok} className="ok">
           ✓
         </span>
       </div>
-      <div className="when">{resetLine(view.key, resetsAt, new Date(now), lang)}</div>
+      <div className="when">{view.noLimit ? ' ' : resetLine(view.key, resetsAt, new Date(now), lang)}</div>
     </div>
   )
 }

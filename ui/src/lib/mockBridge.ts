@@ -1,5 +1,5 @@
 // Browser-only stand-in for the Tauri backend, so the UI can be driven by Playwright.
-// Scenario via the URL: ?mock=connected|waiting|disconnected|timedout|needsFirefox|expired|error|near|idle|twoOrgs
+// Scenario via the URL: ?mock=connected|waiting|disconnected|timedout|needsFirefox|expired|error|near|idle|ultra|twoOrgs
 import type { Bridge, UnlistenFn } from './bridge'
 import type { AppState, CommandDto, Lang, OrgSummary, Prefs, ResetEvent, RingView } from './types'
 
@@ -27,6 +27,7 @@ const iso = (ms: number) => new Date(ms).toISOString()
 
 // Named like real claude.ai orgs: a personal org is "<email>'s Organization".
 const ORG_PERSONAL: OrgSummary = { uuid: 'org-personal', name: "jane@example.com's Organization", plan: 'max' }
+const ORG_ULTRA: OrgSummary = { uuid: 'org-ultra', name: "jane@example.com's Organization", plan: 'ultra' }
 const ORG_TEAM: OrgSummary = { uuid: 'org-team', name: 'Acme Studio', plan: 'team' }
 
 /** Next Friday 23:59 local time (always in the future). */
@@ -44,8 +45,8 @@ function rings(
   w: { used: number; expected: number; pace: RingView['pace'] },
 ): [RingView, RingView] {
   return [
-    { key: 'session', used: s.used, resetsAt: s.resetsAt === null ? null : iso(s.resetsAt), expected: s.expected, pace: s.pace },
-    { key: 'weekly', used: w.used, resetsAt: iso(nextFriday2359(now)), expected: w.expected, pace: w.pace },
+    { key: 'session', used: s.used, resetsAt: s.resetsAt === null ? null : iso(s.resetsAt), expected: s.expected, pace: s.pace, noLimit: false },
+    { key: 'weekly', used: w.used, resetsAt: iso(nextFriday2359(now)), expected: w.expected, pace: w.pace, noLimit: false },
   ]
 }
 
@@ -92,6 +93,11 @@ function scenario(kind: string, now: number): AppState {
         ...base,
         rings: rings(now, { used: 0, expected: null, pace: 'idle', resetsAt: null }, { used: 34, expected: 45, pace: 'room' }),
       }
+    case 'ultra': {
+      const [, weekly] = rings(now, { used: 0, expected: null, pace: 'idle', resetsAt: null }, { used: 34, expected: 45, pace: 'room' })
+      const session: RingView = { key: 'session', used: 0, resetsAt: null, expected: null, pace: 'idle', noLimit: true }
+      return { ...base, org: ORG_ULTRA, orgs: [ORG_ULTRA], rings: [session, weekly] }
+    }
     case 'twoOrgs':
       return { ...base, orgs: [ORG_PERSONAL, ORG_TEAM] }
     default:

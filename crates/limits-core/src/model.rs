@@ -41,7 +41,10 @@ impl Usage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Plan {
+    /// Has the 5-hour session limit (formerly "Max 5x").
     Max,
+    /// Weekly limit only. claude.ai still reports it as `default_claude_max_20x`.
+    Ultra,
     Pro,
     Team,
     Enterprise,
@@ -51,7 +54,9 @@ impl Plan {
     /// Maps a raw `rate_limit_tier` (e.g. `default_claude_max_20x`); unknown tiers give `None`.
     pub fn from_tier(tier: &str) -> Option<Plan> {
         let t = tier.to_ascii_lowercase();
-        if t.contains("max") {
+        if t.contains("max_20x") || t.contains("ultra") {
+            Some(Plan::Ultra)
+        } else if t.contains("max") {
             Some(Plan::Max)
         } else if t.contains("enterprise") {
             Some(Plan::Enterprise)
@@ -62,6 +67,11 @@ impl Plan {
         } else {
             None
         }
+    }
+
+    /// `false` only for Ultra, which has a weekly limit and no 5-hour one.
+    pub fn has_session_limit(self) -> bool {
+        self != Plan::Ultra
     }
 }
 
