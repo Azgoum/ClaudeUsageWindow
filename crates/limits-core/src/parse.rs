@@ -199,7 +199,7 @@ mod tests {
                 {"uuid":"d","name":"D","capabilities":["chat"],"rate_limit_tier":null}]"#,
         )
         .unwrap();
-        assert_eq!(o.iter().map(|o| o.plan).collect::<Vec<_>>(), vec![Some(Plan::Max), None, None, None]);
+        assert_eq!(o.iter().map(|o| o.plan).collect::<Vec<_>>(), vec![Some(Plan::Ultra), None, None, None]);
         let two = parse_orgs(ORGS_TWO).unwrap();
         assert_eq!(two[0].plan, Some(Plan::Max));
         assert_eq!(two[1].plan, None, "API tiers are not plans");
@@ -207,7 +207,12 @@ mod tests {
     #[test]
     fn plan_from_tier_maps_known_families() {
         assert_eq!(Plan::from_tier("default_claude_max_5x"), Some(Plan::Max));
-        assert_eq!(Plan::from_tier("default_claude_max_20x"), Some(Plan::Max));
+        assert_eq!(Plan::from_tier("default_claude_max_20x"), Some(Plan::Ultra));
+        assert_eq!(Plan::from_tier("claude_ultra"), Some(Plan::Ultra));
+        assert_eq!(Plan::from_tier("default_claude_max"), Some(Plan::Max));
+        assert_eq!(Plan::from_tier("default_claude_max_10x"), Some(Plan::Max));
+        assert!(Plan::Max.has_session_limit() && Plan::Pro.has_session_limit());
+        assert!(!Plan::Ultra.has_session_limit());
         assert_eq!(Plan::from_tier("default_claude_pro"), Some(Plan::Pro));
         assert_eq!(Plan::from_tier("default_claude_team"), Some(Plan::Team));
         assert_eq!(Plan::from_tier("raven"), Some(Plan::Team));

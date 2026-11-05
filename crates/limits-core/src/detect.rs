@@ -1,4 +1,4 @@
-use crate::model::{LimitKey, Usage};
+use crate::model::{LimitKey, Plan, Usage};
 use chrono::{DateTime, Duration, Utc};
 use serde::Serialize;
 
@@ -38,6 +38,15 @@ pub fn detect_resets(prev: &Usage, cur: &Usage, now: DateTime<Utc>) -> Vec<Reset
         .collect()
 }
 
+/// `detect_resets`, minus the session ring when the plan has no 5-hour limit.
+pub fn detect_resets_for(plan: Option<Plan>, prev: &Usage, cur: &Usage, now: DateTime<Utc>) -> Vec<ResetEvent> {
+    let mut events = detect_resets(prev, cur, now);
+    if plan.is_some_and(|p| !p.has_session_limit()) {
+        events.retain(|e| e.key != LimitKey::Session);
+    }
+    events
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,6 +76,15 @@ mod tests {
         assert_eq!(e.len(), 1);
         assert_eq!(e[0].key, LimitKey::Session);
         assert_eq!(e[0].kind, ResetKind::Surprise { early_secs: 0 });
+    }
+    #[test]
+    fn ultra_ignores_session_resets() {
+        use crate::model::Plan;
+        let (p, c) = (u(78.0, Some("14:00"), 34.0), u(0.0, None, 0.0));
+        let e = detect_resets_for(Some(Plan::Ultra), &p, &c, at("14:00:20"));
+        assert_eq!(e.iter().map(|e| e.key).collect::<Vec<_>>(), vec![LimitKey::Weekly]);
+        assert_eq!(detect_resets_for(Some(Plan::Max), &p, &c, at("14:00:20")).len(), 2);
+        assert_eq!(detect_resets_for(None, &p, &c, at("14:00:20")).len(), 2);
     }
     #[test]
     fn serializes_flat_camel_case() {

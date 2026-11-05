@@ -6,6 +6,7 @@ import {
   errLine,
   isNearLimit,
   numFill,
+  arcStroke,
   ringNumber,
   tickAngle,
   tickOpacity,
@@ -22,6 +23,7 @@ const ring = (p: Partial<RingView>): RingView => ({
   resetsAt: new Date(2026, 10, 3, 14, 0).toISOString(),
   expected: 48,
   pace: 'ahead',
+  noLimit: false,
   ...p,
 })
 
@@ -142,5 +144,25 @@ describe('tipTitle', () => {
     // An unexpected value from a newer backend is never shown raw.
     expect(tipTitle({ ...team, plan: 'galaxy' as never }, [team], 'en')).toBe('Acme Studio')
     expect(tipTitle(null, [], 'en')).toBe('')
+  })
+})
+
+describe('no-limit session ring (Ultra)', () => {
+  const nl = ring({ used: 0, resetsAt: null, expected: null, pace: 'idle', noLimit: true })
+  it('is greyed, with no pace tick', () => {
+    expect(numFill(nl)).toBe('#8b8b95')
+    expect(arcStroke(nl)).toBe('rgba(255,255,255,.18)')
+    expect(arcStroke(ring({}))).toBe('#fb7185')
+    expect(tickOpacity(nl.expected)).toBe(0)
+  })
+  it('has its own tooltip, not the idle one', () => {
+    const m = tipModel(nl, now, 'en')
+    expect(m).toEqual({ kind: 'nolimit', title: '5-hour session', line: 'No 5-hour limit on the Ultra plan' })
+    expect(tipModel(nl, now, 'fr')).toMatchObject({ kind: 'nolimit', line: "Pas de limite de 5 h sur le forfait Ultra" })
+  })
+  it('titles the tooltip with the Ultra plan', () => {
+    const ultra: OrgSummary = { uuid: 'u', name: "a@b.c's Organization", plan: 'ultra' }
+    expect(tipTitle(ultra, [ultra], 'en')).toBe('Ultra plan')
+    expect(tipTitle(ultra, [ultra], 'fr')).toBe('Forfait Ultra')
   })
 })

@@ -14,6 +14,12 @@ describe('i18n', () => {
       }
     }
   })
+  it('no-limit labels', () => {
+    expect(t('en').noLimit).toBe('No 5 h limit')
+    expect(t('fr').noLimit).toBe('Pas de limite 5 h')
+    expect(t('en').planUltra).toBe('Ultra plan')
+    expect(t('fr').planUltra).toBe('Forfait Ultra')
+  })
   it('format helpers keep prototype wording', () => {
     expect(t('en').used(62)).toBe('62% used')
     expect(t('fr').used(62)).toBe('62 % utilisé')

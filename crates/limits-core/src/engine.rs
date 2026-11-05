@@ -1,6 +1,6 @@
 use crate::clock::Clock;
 use crate::{
-    backoff_delay, choose_org, detect_resets, eligible_orgs, pace, ApiError, ClaudeApi, CredStore,
+    backoff_delay, choose_org, detect_resets_for, eligible_orgs, pace, ApiError, ClaudeApi, CredStore,
     LimitKey, Org, Pace, Plan, ResetEvent, SessionCookies, SessionSource, SettingsStore, Usage,
 };
 use chrono::{DateTime, Utc};
@@ -48,6 +48,8 @@ pub struct RingView {
     pub resets_at: Option<DateTime<Utc>>,
     pub expected: Option<f64>,
     pub pace: Pace,
+    /// The plan has no such limit (Ultra's session ring): shown as "no limit", never as idle.
+    pub no_limit: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -196,10 +198,13 @@ impl Heartbeat {
     }
 }
 
-fn ring(key: LimitKey, u: &Usage, now: DateTime<Utc>) -> RingView {
+fn ring(key: LimitKey, u: &Usage, plan: Option<Plan>, now: DateTime<Utc>) -> RingView {
+    if key == LimitKey::Session && plan.is_some_and(|p| !p.has_session_limit()) {
+        return RingView { key, used: 0.0, resets_at: None, expected: None, pace: Pace::Idle, no_limit: true };
+    }
     let w = u.get(key);
     let p = pace(key, w, now);
-    RingView { key, used: w.used, resets_at: w.resets_at, expected: p.expected, pace: p.pace }
+    RingView { key, used: w.used, resets_at: w.resets_at, expected: p.expected, pace: p.pace, no_limit: false }
 }
 
 fn describe(e: &ApiError) -> String {
@@ -370,10 +375,11 @@ impl Engine {
 
     fn refresh_rings(&mut self) {
         let now = self.deps.clock.now();
+        let plan = self.state.org.as_ref().and_then(|o| o.plan);
         self.state.rings = self
             .last_usage
             .as_ref()
-            .map(|u| [ring(LimitKey::Session, u, now), ring(LimitKey::Weekly, u, now)]);
+            .map(|u| [ring(LimitKey::Session, u, plan, now), ring(LimitKey::Weekly, u, plan, now)]);
     }
 
     async fn on_poll_result(&mut self, res: Result<Usage, ApiError>) {
@@ -385,7 +391,8 @@ impl Engine {
                 tracing::debug!(session = cur.session.used, weekly = cur.weekly.used, "poll ok");
                 let now = self.deps.clock.now();
                 if let Some(prev) = &self.prev {
-                    let events = detect_resets(prev, &cur, now);
+                    let plan = self.state.org.as_ref().and_then(|o| o.plan);
+                    let events = detect_resets_for(plan, prev, &cur, now);
                     if !events.is_empty() {
                         tracing::info!(count = events.len(), "reset detected");
                         self.state.resets = events;
@@ -826,6 +833,28 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn ultra_plan_session_ring_is_no_limit() {
+        let mut orgs = default_orgs();
+        orgs[0].plan = Some(Plan::Ultra);
+        let h = start(Setup { orgs: Some(orgs), usage: vec![Ok(usage(0.0, None, 12.0))], ..with_creds() }).await;
+        let s = h.state();
+        let r = s.rings.clone().expect("rings");
+        assert!(r[0].no_limit && r[0].pace == Pace::Idle && r[0].expected.is_none());
+        assert!(!r[1].no_limit);
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["rings"][0]["noLimit"], true);
+        assert_eq!(v["rings"][1]["noLimit"], false);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn max_plan_session_ring_has_a_limit() {
+        let mut orgs = default_orgs();
+        orgs[0].plan = Some(Plan::Max);
+        let h = start(Setup { orgs: Some(orgs), ..with_creds() }).await;
+        assert!(!h.state().rings.unwrap()[0].no_limit);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn start_without_saved_org_picks_last_active_and_saves_it() {
         let h = start(Setup { saved_org: None, ..with_creds() }).await;
         assert_eq!(h.state().org, Some(summary("org-b")));
@@ -1162,8 +1191,9 @@ mod tests {
                     resets_at: Some(t("2026-11-03T14:00:00Z")),
                     expected: Some(48.0),
                     pace: Pace::Ahead,
+                    no_limit: false,
                 },
-                RingView { key: LimitKey::Weekly, used: 0.0, resets_at: None, expected: None, pace: Pace::Idle },
+                RingView { key: LimitKey::Weekly, used: 0.0, resets_at: None, expected: None, pace: Pace::Idle, no_limit: false },
             ]),
             last_ok: Some(t("2026-11-03T12:00:00Z")),
             error: Some(ErrorInfo { retry_at: t("2026-11-03T12:01:00Z") }),

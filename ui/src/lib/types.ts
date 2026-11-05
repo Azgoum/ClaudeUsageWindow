@@ -20,10 +20,12 @@ export interface RingView {
   /** 0-100 expected usage at this point of the window, null when unknown */
   expected: number | null
   pace: Pace
+  /** The plan has no such limit (Ultra's session ring): drawn as "no limit", not idle */
+  noLimit: boolean
 }
 
 /** claude.ai plan, from the org's `rate_limit_tier`; null when unknown. */
-export type Plan = 'max' | 'pro' | 'team' | 'enterprise'
+export type Plan = 'max' | 'ultra' | 'pro' | 'team' | 'enterprise'
 
 export interface OrgSummary {
   uuid: string
