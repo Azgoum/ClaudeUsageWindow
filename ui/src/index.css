@@ -1,0 +1,225 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Inter Variable', 'Segoe UI Variable', 'Segoe UI', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --radius: 0.625rem;
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar-primary: oklch(0.205 0 0);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  html {
+    @apply font-sans;
+    }
+  /* Transparent: the Tauri acrylic window sits behind the page. */
+  html, body, #root {
+    background: transparent;
+    overflow: hidden;
+    }
+}
+
+/* ---------- widget (values copied from the approved prototype) ---------- */
+.wd { --green:#34d399; --red:#fb7185; --blue:#7dd3fc; --gold:#facc15; --ink:#e7e7ea; --mute:#8b8b95; --dim:#5f5f69; }
+.wd { position: absolute; left: 0; top: 0; z-index: 10; color: var(--ink); font: 12px/1.2 Inter, "Segoe UI Variable", system-ui, sans-serif; cursor: grab; user-select: none;
+  background: rgba(22,22,28,.66); backdrop-filter: blur(18px) saturate(1.5); -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,.09); border-radius: 16px; box-shadow: 0 12px 34px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.06);
+  transition: box-shadow .4s, opacity .3s, transform .3s; }
+.wd.warn { box-shadow: 0 0 0 1px rgba(251,113,133,.45), 0 0 26px rgba(251,113,133,.25), 0 12px 34px rgba(0,0,0,.4); }
+.wd .rings { display: flex; gap: 6px; padding: 24px 14px 22px; }
+.wd .rg { width: 104px; text-align: center; position: relative; }
+.wd .rg svg { display: block; margin: 0 auto 6px; overflow: visible; }
+.wd .rg .name { font-size: 11px; font-weight: 650; color: #c9c9d1; white-space: nowrap; }
+.wd .rg .when { font-size: 10.5px; color: var(--ink); margin-top: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* out of flow: doesn't shift the centered title */
+.wd .rg .ok { color: var(--green); font-weight: 800; opacity: 0; display: inline-block; position: absolute; margin-left: 3px; }
+.wd .arc { transition: stroke-dashoffset .8s cubic-bezier(.2,.9,.25,1.05), stroke .4s; }
+.wd .tick { transition: transform .8s cubic-bezier(.2,.9,.25,1.05), opacity .3s; transform-box: view-box; transform-origin: 32px 32px; }
+.wd .num { transform-box: fill-box; transform-origin: center; transition: fill .4s; }
+.wd.err .rings { filter: grayscale(1); opacity: .5; }
+.wd .foot { display: none; padding: 0 12px 9px; font-size: 10.5px; text-align: center; }
+.wd.err .foot { display: block; }
+.wd .foot .msg { white-space: nowrap; color: #fda4af; }
+.wd .ctl { position: absolute; top: 4px; right: 5px; z-index: 2; display: flex; gap: 2px; opacity: 0; transition: opacity .2s; }
+.wd:hover .ctl, .wd:hover .rf, .wd:hover .flags { opacity: 1; }
+.wd .ib { width: 22px; height: 18px; display: grid; place-items: center; border-radius: 5px; color: var(--mute); cursor: pointer; transition: background .12s, color .12s; }
+.wd .ib:hover { background: rgba(255,255,255,.09); color: #fff; }
+.wd .ib.close:hover { background: #e81123; color: #fff; }
+.wd .ib svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.wd .rf { position: absolute; bottom: 5px; right: 5px; z-index: 2; opacity: 0; transition: opacity .2s; }
+.wd .flags { position: absolute; top: 6px; left: 8px; z-index: 2; display: flex; gap: 5px; opacity: 0; transition: opacity .2s; }
+.wd .flags svg { display: block; width: 16px; height: 11px; border-radius: 2px; cursor: pointer; opacity: .4; outline: 1px solid rgba(255,255,255,.15); transition: opacity .15s, transform .15s; }
+.wd .flags svg:hover { opacity: .8; transform: scale(1.1); }
+.wd .flags svg.on { opacity: 1; outline: 1.5px solid rgba(255,255,255,.75); }
+.wd .st { padding: 26px 18px 14px; width: 242px; }
+.wd .st h4 { font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+.wd .st p { color: var(--mute); font-size: 11px; line-height: 1.45; margin-bottom: 10px; }
+.wd .st p.msg { color: #fda4af; }
+.wd .btn-c { width: 100%; padding: 9px; border-radius: 10px; border: 0; font: 600 12.5px Inter, system-ui; color: #1a1a1a; background: linear-gradient(180deg,#f3c3a9,#d97757); cursor: pointer; box-shadow: 0 6px 18px rgba(217,119,87,.35); }
+.wd .btn-c:hover { filter: brightness(1.06); }
+.wd .lnks { display: flex; justify-content: space-between; font-size: 11px; }
+.wd .lnk { color: #f0b38f; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
+/* The only continuous animation: a loading indicator, static under reduced motion. */
+.wd .spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; animation: sp .8s linear infinite; display: inline-block; vertical-align: -2px; margin-right: 6px; }
+@keyframes sp { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .wd .spin { animation: none; } }
+
+/* Tauri: the window is exactly the widget's box (no window effect behind it), so anything drawn
+   outside the border is clipped. The drop shadow goes, the near-limit glow is drawn inside, and the
+   glass is a bit more opaque because nothing blurs the desktop behind it. */
+.tauri .wd { background: rgba(22,22,28,.80); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
+.tauri .wd.warn { border-color: rgba(251,113,133,.55); box-shadow: inset 0 0 22px rgba(251,113,133,.22), inset 0 1px 0 rgba(255,255,255,.06); }
+
+/* tooltip (portalled to <body>) */
+.tip-pos { z-index: 30; }
+.tip { pointer-events: none; background: rgba(14,14,18,.94); border: 1px solid rgba(255,255,255,.1); color: #ddd; font: 11px/1.5 Inter, system-ui; padding: 7px 10px; border-radius: 9px; white-space: nowrap; transition: opacity .15s; }
+.tip[data-starting-style], .tip[data-ending-style] { opacity: 0; }
+.tip b { color: #fff; }
+/* The window only grows downward for the tooltip, never sideways: a long plan · org title is cut. */
+.tip { max-width: calc(100vw - 12px); box-sizing: border-box; }
+.tip .tt { font-weight: 650; color: #fff; padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,.1); overflow: hidden; text-overflow: ellipsis; }
+.tip .tt span { color: #8b8b95; font-weight: 400; }
+
+/* right-click menu (portalled to <body>) */
+.menu-pos { z-index: 40; }
+.menu { min-width: 200px; padding: 5px; border-radius: 10px; background: rgba(32,32,38,.96); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 16px 40px rgba(0,0,0,.5); font: 12px Inter, "Segoe UI Variable", system-ui; color: #e7e7ea; outline: none; user-select: none; --dim:#5f5f69; }
+.menu .it { padding: 6px 10px 6px 26px; border-radius: 6px; cursor: pointer; position: relative; white-space: nowrap; outline: none; }
+.menu .it:hover, .menu .it[data-highlighted] { background: rgba(255,255,255,.08); }
+.menu .it.chk::before { content: "✓"; position: absolute; left: 9px; color: #f0b38f; }
+.menu .hd { padding: 6px 10px 2px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.menu .sep { height: 1px; background: rgba(255,255,255,.08); margin: 4px 2px; }
+.menu .it.danger { color: #fda4af; }
+
+/* Browser mock only (never in Tauri): the prototype's desktop backdrop, for comparable screenshots. */
+.mock-desktop { position: fixed; inset: 0; overflow: hidden;
+  background: radial-gradient(120% 90% at 10% 0%, #3b2a6b 0%, transparent 55%), radial-gradient(90% 80% at 100% 100%, #0f4c5c 0%, transparent 60%), linear-gradient(135deg,#17171f,#0d0d12); }
+.mock-desktop::before { content:""; position:absolute; width:260px; height:260px; border-radius:50%; background:#d97757; filter: blur(80px); opacity:.3; left:30%; top:30%; }
+.mock-desktop .wd { left: auto; right: 16px; top: 16px; }
+/* ---------- reset animations (Task 14; prototype .chip / .spark) ---------- */
+/* The pill sits in the free 24 px band above the rings (the prototype straddles the top border, but
+   the window is exactly the widget's box): one line, y = 2-22, clear of the arcs and labels.
+   Pill.show shrinks the font of text too wide for the widget (French chipW). */
+.wd .chip { position: absolute; left: 50%; top: 2px; transform: translateX(-50%); width: max-content; white-space: nowrap; line-height: 1.2; font-size: 10px; font-weight: 650; padding: 3px 8px; border-radius: 99px; opacity: 0; pointer-events: none; z-index: 3; }
+.wd .chip.calm { background: rgba(20,40,32,.9); color: #a7f3d0; border: 1px solid rgba(52,211,153,.45); }
+.wd .chip.gold { background: rgba(48,40,10,.92); color: #fde68a; border: 1px solid rgba(250,204,21,.55); box-shadow: 0 0 18px rgba(250,204,21,.35); }
+.tauri .wd .chip.gold { box-shadow: 0 0 12px rgba(250,204,21,.3); }
+/* Sparks stay on the glass. */
+.wd .sparks { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; pointer-events: none; z-index: 4; }
+.wd .spark { position: absolute; width: 5px; height: 5px; border-radius: 50%; pointer-events: none; }
+/* Surprise glow: an overlay whose opacity is animated. The browser mock glows outside like the
+   prototype; in Tauri nothing outside the border is visible, so it glows inward. */
+.wd .glow { position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; opacity: 0; z-index: 3;
+  box-shadow: 0 0 0 1.5px rgba(250,204,21,.85), 0 0 40px rgba(250,204,21,.4); }
+.tauri .wd .glow { box-shadow: inset 0 0 0 1.5px rgba(250,204,21,.85), inset 0 0 26px rgba(250,204,21,.32); }

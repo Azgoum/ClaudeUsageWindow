@@ -1,0 +1,7 @@
+{
+  "limits": [
+    {"kind": "session", "group": "session", "percent": 40, "resets_at": "2026-11-03T13:00:00+00:00"},
+    {"kind": "weekly_all", "group": "weekly", "percent": 12, "resets_at": "2026-11-06T23:59:59+00:00", "scope": null},
+    {"kind": "weekly_scoped", "group": "weekly", "percent": 0, "scope": {"model": {"display_name": "Fable"}}}
+  ]
+}

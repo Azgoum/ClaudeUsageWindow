@@ -1,73 +1,97 @@
-# ClaudeUsageWindow
+# Claude Limit Checker
 
-Widget Windows always-on-top affichant ta consommation Claude.ai en temps réel, exactement comme sur https://claude.ai/settings/usage
+English | [Français](README.fr.md)
 
-## Fonctionnalités
+> **Unofficial, not affiliated with Anthropic.** This is an independent hobby project.
 
-- **Affichage temps réel** : Session (5h) et usage hebdomadaire
-- **Barres de progression** colorées selon le niveau (vert → orange → rouge)
-- **Indicateur de rythme** : "En avance" (rouge), "On track" (vert), "En retard" (orange) par rapport au rythme idéal de consommation
-- **Always-on-top** : toujours visible sur ton bureau
-- **Auto-refresh** : mise à jour toutes les 2 minutes
-- **Icône Claude** : icône PNG personnalisée pour la fenêtre et la barre des tâches
+![Claude Limit Checker showing the 5-hour session and weekly rings](docs/screenshot.png)
 
-## Prérequis
+A small always-on-top Windows widget that shows your claude.ai usage limits at a glance.
 
-- Python 3.8+
-- Firefox avec une session active sur claude.ai
+## What it shows
 
-## Installation
+Two rings, refreshed every 30 seconds:
 
-```bash
-git clone https://github.com/Azgoum/ClaudeUsageWindow.git
-cd ClaudeUsageWindow
-pip install -r requirements.txt
+- **5-hour session**: how much of the current 5-hour window you have used, and when it resets.
+- **Weekly**: how much of your 7-day limit you have used, and when it resets.
+
+The white **tick** on each ring marks where you would be if you used your allowance at an even pace
+until the reset. The ring color compares your actual usage to that pace:
+
+| Color | Meaning |
+| --- | --- |
+| Red | Ahead of pace: you are using it faster than an even pace (more than 5 points ahead) |
+| Green | On track (within 5 points of the tick) |
+| Blue | Room left: you are behind pace (more than 5 points under the tick) |
+| Gray | Idle: no session window is currently running |
+
+## Requirements
+
+- **Windows 10 or 11**
+- **Firefox**, signed in to claude.ai. Firefox is the only supported browser for now.
+
+## Install
+
+Download the installer (`.exe`) from the [Releases page](https://github.com/Azgoum/ClaudeUsageWindow/releases)
+and run it.
+
+No install wanted? The same page has a **portable zip** (`limitrings-windows-x64.zip`): unzip it anywhere
+and run `limitrings.exe`. It needs the WebView2 runtime, which Windows 10 and 11 normally already have.
+
+Releases are **not code-signed**: a code-signing certificate costs money every year, and this is a free
+open-source side project. Windows SmartScreen will therefore warn you ("Windows protected your PC").
+Click **More info**, then **Run anyway**. If you prefer, [build it from source](#build-from-source) and
+check the code yourself.
+
+## Connect
+
+On first launch, click **Connect**. The app opens Firefox on claude.ai if needed and waits for you to be
+signed in.
+
+Exactly what is read: the **claude.ai cookies from your Firefox profile** (the `cookies.sqlite` file, copied
+to a temporary file because Firefox locks it). Nothing else in your profile is touched. The cookies are
+then stored in **Windows Credential Manager**, never in a plain file, and are **sent only to claude.ai**.
+"Disconnect" in the menu deletes them.
+
+## Uninstall
+
+**Choose Disconnect in the menu before uninstalling.** The uninstaller (or deleting the portable folder)
+removes the app, but not the stored session in Credential Manager (entries named `limitrings`) nor the
+"Start with Windows" entry. So: turn off **Start with Windows**, choose **Disconnect**, then uninstall.
+Already uninstalled? Delete the `limitrings` entries in Credential Manager and the `limitrings` value under
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` by hand.
+
+## Heads up: undocumented endpoint, terms of service
+
+Claude Limit Checker uses an **undocumented claude.ai endpoint**, the same one the usage page in
+your settings uses. It can change or break at any time without notice. Using your browser session
+from a third-party app also sits in a **gray area of Anthropic's terms of service**. Use it at your
+own risk.
+
+## Privacy
+
+No telemetry, no analytics, no accounts. The only network traffic goes to `https://claude.ai`.
+Settings live in `%APPDATA%\limitrings\`, logs in `%LOCALAPPDATA%\limitrings\logs\` (cookie values are
+never logged).
+
+## Build from source
+
+Requirements: Rust (MSVC toolchain), Node 22, and `cargo install tauri-cli --version "^2" --locked`.
+
+```sh
+cd ui && npm ci && cd ..
+cargo tauri build      # installer in target/release/bundle/nsis/
 ```
 
-## Utilisation
+Tests: `cargo test --workspace`, and `npm test -- --run` plus `npx tsc --noEmit` in `ui/`.
 
-### Lancement
+For development without a real claude.ai account, run the scripted fake server
+(see [tools/fake-claude/README.md](tools/fake-claude/README.md)):
 
-Double-cliquer sur `start.bat` ou :
-
-```bash
-python token_monitor.py
+```sh
+node tools/fake-claude/server.mjs
 ```
 
-### Important
+## License
 
-**Tu dois être connecté sur claude.ai dans Firefox** pour que le widget puisse récupérer les données. Le widget utilise les cookies de ta session Firefox.
-
-### Fonctionnement
-
-1. Le widget récupère les données depuis l'API claude.ai
-2. Affiche le % d'utilisation session et hebdomadaire
-3. Affiche l'heure du prochain reset
-
-## Fichiers
-
-```
-ClaudeUsageWindow/
-├── token_monitor.py       # Application principale
-├── start.bat              # Lanceur Windows (sans fenêtre CMD)
-├── icons8-claude-48.png   # Icône Claude
-├── requirements.txt       # Dépendances Python
-├── state.json             # État persistant (auto-généré)
-├── .gitignore
-└── README.md
-```
-
-## API Claude.ai
-
-Le widget utilise l'endpoint non-documenté :
-```
-GET https://claude.ai/api/organizations/{uuid}/usage
-```
-
-## Dépendances
-
-- **browser-cookie3** : pour lire les cookies Firefox
-
-## Licence
-
-MIT
+[MIT](LICENSE) © 2026 Aziz Goumiri

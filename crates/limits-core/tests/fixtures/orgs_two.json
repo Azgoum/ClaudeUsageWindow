@@ -1,0 +1,4 @@
+[
+  {"uuid": "11111111-2222-4333-8444-555555555555", "name": "Example Chat Org", "capabilities": ["chat", "claude_max"], "rate_limit_tier": "default_claude_max_5x"},
+  {"uuid": "66666666-7777-4888-9999-000000000000", "name": "Example API Org", "capabilities": ["api", "api_individual"], "rate_limit_tier": "auto_prepaid_tier_0"}
+]
