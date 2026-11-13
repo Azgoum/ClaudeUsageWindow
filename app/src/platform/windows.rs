@@ -191,3 +191,201 @@ unsafe extern "system" fn keep_layered(
     // SAFETY: forwards the message unchanged to the next handler in the chain.
     unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
 }
+
+// ---------------------------------------------------------------------------
+// Single instance, monitors, window bounds, shell helpers.
+// ---------------------------------------------------------------------------
+
+use limits_core::Rect;
+use windows_sys::Win32::{
+    Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, HANDLE, RECT},
+    Graphics::Gdi::{
+        EnumDisplayMonitors, GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO,
+        MONITOR_DEFAULTTONEAREST,
+    },
+    System::Threading::CreateMutexW,
+    UI::{
+        Shell::ShellExecuteW,
+        WindowsAndMessaging::{
+            FindWindowW, GetWindowRect, IsIconic, SetForegroundWindow, SetWindowPos, ShowWindow,
+            SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION, SWP_NOACTIVATE, SWP_NOZORDER,
+            SW_RESTORE, SW_SHOWNORMAL,
+        },
+    },
+};
+
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+fn rect_of(r: &RECT) -> Rect {
+    Rect {
+        x: r.left,
+        y: r.top,
+        w: r.right - r.left,
+        h: r.bottom - r.top,
+    }
+}
+
+/// Holds the single-instance mutex; the handle is closed on drop.
+pub struct InstanceGuard(HANDLE);
+
+impl Drop for InstanceGuard {
+    fn drop(&mut self) {
+        // SAFETY: the handle came from CreateMutexW and is closed once.
+        unsafe { CloseHandle(self.0) };
+    }
+}
+
+pub fn single_instance(name: &str) -> Option<InstanceGuard> {
+    let name = wide(name);
+    // SAFETY: `name` is NUL-terminated and outlives the call.
+    let handle = unsafe { CreateMutexW(ptr::null(), 0, name.as_ptr()) };
+    if handle.is_null() {
+        return None;
+    }
+    // SAFETY: reads the calling thread's last error right after the call.
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        // SAFETY: we own this duplicate handle.
+        unsafe { CloseHandle(handle) };
+        return None;
+    }
+    Some(InstanceGuard(handle))
+}
+
+/// Restores and focuses the top-level window titled `title`.
+pub fn focus_existing(title: &str) -> bool {
+    let title = wide(title);
+    // SAFETY: `title` is NUL-terminated; a null class matches any class.
+    unsafe {
+        let hwnd = FindWindowW(ptr::null(), title.as_ptr());
+        if hwnd.is_null() {
+            return false;
+        }
+        ShowWindow(hwnd, SW_RESTORE);
+        SetForegroundWindow(hwnd);
+    }
+    true
+}
+
+unsafe extern "system" fn collect_monitor(
+    monitor: HMONITOR,
+    _dc: HDC,
+    _rect: *mut RECT,
+    out: LPARAM,
+) -> i32 {
+    // SAFETY: `out` is the `&mut Vec<Rect>` passed by `work_areas`.
+    let out = unsafe { &mut *(out as *mut Vec<Rect>) };
+    if let Some(r) = monitor_work_area(monitor) {
+        out.push(r);
+    }
+    1
+}
+
+fn monitor_work_area(monitor: HMONITOR) -> Option<Rect> {
+    // SAFETY: MONITORINFO is plain data; cbSize is set before the call.
+    unsafe {
+        let mut info: MONITORINFO = mem::zeroed();
+        info.cbSize = mem::size_of::<MONITORINFO>() as u32;
+        (GetMonitorInfoW(monitor, &mut info) != 0).then(|| rect_of(&info.rcWork))
+    }
+}
+
+pub fn work_areas() -> Vec<Rect> {
+    let mut out: Vec<Rect> = Vec::new();
+    // SAFETY: the callback only runs during this call and `out` outlives it.
+    unsafe {
+        EnumDisplayMonitors(
+            ptr::null_mut(),
+            ptr::null(),
+            Some(collect_monitor),
+            &mut out as *mut Vec<Rect> as LPARAM,
+        );
+    }
+    out
+}
+
+/// The primary monitor's work area (the one at the origin).
+pub fn primary_work_area() -> Option<Rect> {
+    use windows_sys::Win32::Graphics::Gdi::MonitorFromPoint;
+    use windows_sys::Win32::Graphics::Gdi::MONITOR_DEFAULTTOPRIMARY;
+    // SAFETY: plain value arguments.
+    let monitor = unsafe { MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
+    monitor_work_area(monitor)
+}
+
+pub fn work_area_of(hwnd: isize) -> Option<Rect> {
+    // SAFETY: an invalid HWND just yields the nearest (primary) monitor.
+    let monitor = unsafe { MonitorFromWindow(hwnd as HWND, MONITOR_DEFAULTTONEAREST) };
+    monitor_work_area(monitor)
+}
+
+pub fn window_rect(hwnd: isize) -> Option<Rect> {
+    let mut r = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    // SAFETY: `r` is a valid out pointer.
+    (unsafe { GetWindowRect(hwnd as HWND, &mut r) } != 0).then(|| rect_of(&r))
+}
+
+pub fn set_window_bounds(hwnd: isize, pos: (i32, i32), size: (i32, i32)) {
+    // SAFETY: plain value arguments; failure leaves the window where it was.
+    unsafe {
+        SetWindowPos(
+            hwnd as HWND,
+            ptr::null_mut(),
+            pos.0,
+            pos.1,
+            size.0,
+            size.1,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+}
+
+pub fn is_minimized(hwnd: isize) -> bool {
+    // SAFETY: plain value argument.
+    unsafe { IsIconic(hwnd as HWND) != 0 }
+}
+
+pub fn open_url(url: &str) -> io::Result<()> {
+    let verb = wide("open");
+    let url = wide(url);
+    // SAFETY: both strings are NUL-terminated; null parameters are allowed.
+    let result = unsafe {
+        ShellExecuteW(
+            ptr::null_mut(),
+            verb.as_ptr(),
+            url.as_ptr(),
+            ptr::null(),
+            ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // ShellExecuteW reports success with a value greater than 32.
+    if result as usize > 32 {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "ShellExecuteW failed with code {}",
+            result as usize
+        )))
+    }
+}
+
+pub fn reduced_motion() -> bool {
+    let mut enabled: i32 = 1;
+    // SAFETY: for this action pvParam points at a BOOL.
+    let ok = unsafe {
+        SystemParametersInfoW(
+            SPI_GETCLIENTAREAANIMATION,
+            0,
+            &mut enabled as *mut i32 as *mut _,
+            0,
+        )
+    };
+    ok != 0 && enabled == 0
+}
