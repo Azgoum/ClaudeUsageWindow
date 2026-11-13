@@ -29,7 +29,7 @@ pub(crate) const FONTS: [(&str, &[u8]); 3] = [
 ];
 
 /// Registers the families `inter`, `inter-semibold` and `inter-bold` and makes
-/// `Proportional` use `inter`. Nothing else is registered.
+/// `Proportional` and `Monospace` use `inter` (egui's debug paths panic on an empty family).
 pub fn install(ctx: &egui::Context) {
     let mut defs = FontDefinitions::empty();
     for (name, bytes) in FONTS {
@@ -40,6 +40,8 @@ pub fn install(ctx: &egui::Context) {
     }
     defs.families
         .insert(FontFamily::Proportional, vec![REGULAR.to_owned()]);
+    defs.families
+        .insert(FontFamily::Monospace, vec![REGULAR.to_owned()]);
     ctx.set_fonts(defs);
 }
 
@@ -131,5 +133,7 @@ mod tests {
             "regular {r}, semibold {s}, bold {b}"
         );
         assert_eq!(width(FontId::proportional(12.0)), r);
+        // egui's debug paths use Monospace: an empty family would panic.
+        assert_eq!(width(FontId::monospace(12.0)), r);
     }
 }

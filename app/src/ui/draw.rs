@@ -241,7 +241,9 @@ pub fn soft_shadow(p: &Painter, rect: Rect, radius: f32, offset_y: f32, blur: f3
 /// A round-capped arc of the circle (`center`, `r`), `width` wide, from
 /// `from_turn` to `to_turn` (turns from 12 o'clock, clockwise). `px` is one
 /// physical pixel in points: every outer edge gets a `px` feather. Empty when
-/// `to_turn - from_turn <= 0`; a full turn or more is a closed ring without caps.
+/// `to_turn - from_turn <= 0`. A sweep whose caps would touch or overlap across the
+/// gap (≥ 1 − the two caps' angular extent, ~95 % for the r 23 ring) is a closed
+/// ring without caps, so a translucent arc never blends twice where they meet.
 pub fn arc_mesh(
     center: Pos2,
     r: f32,
@@ -273,9 +275,11 @@ fn arc(
     if !finite || sweep <= 0.0 || r <= 0.0 || width <= 0.0 || px <= 0.0 {
         return mesh;
     }
-    let closed = sweep >= 1.0;
-    let sweep = sweep.min(1.0);
     let hw = width / 2.0;
+    // Each round cap reaches `hw + px / 2` past its end: both together span this many turns.
+    let caps_turns = 2.0 * (hw + px / 2.0) / (TAU * r);
+    let closed = sweep >= 1.0 || (caps && sweep >= 1.0 - caps_turns);
+    let sweep = if closed { 1.0 } else { sweep };
     // A stroke thinner than a pixel becomes a fainter one-pixel stroke.
     let (solid, color) = if hw >= px / 2.0 {
         (hw - px / 2.0, color)
@@ -756,6 +760,40 @@ mod tests {
         assert!(mesh.vertices.len() / 5 >= (outer_len / 2.0) as usize);
         let hidpi = arc_mesh(pos2(0.0, 0.0), 23.0, 6.0, 0.0, 1.0, Color32::WHITE, 0.5);
         assert!(hidpi.vertices.len() > mesh.vertices.len());
+    }
+
+    /// How many of `mesh`'s triangles contain `q` (strictly inside).
+    fn coverage(mesh: &Mesh, q: Pos2) -> usize {
+        let cross = |a: Pos2, b: Pos2| (b - a).x * (q - a).y - (b - a).y * (q - a).x;
+        mesh.indices
+            .chunks(3)
+            .filter(|t| {
+                let [a, b, c] = [0, 1, 2].map(|i| mesh.vertices[t[i] as usize].pos);
+                let d = [cross(a, b), cross(b, c), cross(c, a)];
+                d.iter().all(|&v| v > 1e-4) || d.iter().all(|&v| v < -1e-4)
+            })
+            .count()
+    }
+
+    #[test]
+    fn near_full_arc_never_covers_a_point_twice() {
+        // Translucent arcs at 96-99.9 %: the end cap would overlap the start cap and blend twice.
+        let c = pos2(32.0, 32.0);
+        for used in [0.96, 0.97, 0.98, 0.99, 0.999] {
+            let mesh = arc_mesh(c, 23.0, 6.0, 0.0, used, colors::TRACK, 1.0);
+            for k in 0..200 {
+                let turn = 0.9 + 0.15 * k as f32 / 200.0;
+                for dr in [-2.3, -0.7, 0.4, 1.9] {
+                    let q = c + radial(turn) * (23.0 + dr);
+                    let n = coverage(&mesh, q);
+                    assert!(n <= 1, "{used}: {n} triangles at turn {turn} dr {dr}");
+                }
+            }
+        }
+        // Far from full, the caps stay (the gap is visible).
+        let open = arc_mesh(c, 23.0, 6.0, 0.0, 0.9, colors::TRACK, 1.0);
+        assert_eq!(coverage(&open, c + radial(0.95) * 23.0), 0);
+        assert_eq!(coverage(&open, c + radial(0.905) * 23.4), 1);
     }
 
     #[test]

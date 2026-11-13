@@ -7,7 +7,9 @@ pub mod format;
 pub mod i18n;
 pub mod menu;
 pub mod ring;
+pub mod rings;
 pub mod room;
+pub mod widget;
 
 #[cfg(test)]
 pub mod fixtures;
