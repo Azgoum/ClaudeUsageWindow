@@ -1,5 +1,6 @@
 //! Claude Limit Checker: native egui widget.
 
+pub mod anim;
 pub mod host;
 pub mod launch;
 pub mod logging;
