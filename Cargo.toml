@@ -8,3 +8,7 @@ codegen-units = 1
 opt-level = "s"
 panic = "abort"
 strip = true
+
+[profile.measure]
+inherits = "release"
+debug-assertions = true

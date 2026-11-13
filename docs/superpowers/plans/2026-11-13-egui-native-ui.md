@@ -750,3 +750,39 @@ System DLLs only: no `VCRUNTIME140`, no `MSVCP140`, no `api-ms-win-crt-*`, no `O
 Local verification: `cargo fmt --all --check` clean, clippy `-D warnings` clean, `cargo test --workspace` 256 (app) + 112 (limits-core, 3 ignored) passed.
 
 Task 16 fix round 1 (size): `opt-level = "z"` on the full app measured **larger** (7 157 760 B vs 6 713 344 B), so `"s"` stays. `tempfile` in `limits-core` is used by non-test code (`session/firefox.rs`), so it stays a normal dependency. `cargo bloat --crates` top contributors (.text 4.9 MiB): std 682 KiB, fearless_simd 454 KiB, vello_cpu 262 KiB (egui's epaint rasterizer), harfrust 257 KiB, skrifa 241 KiB, rustls 235 KiB, limitrings_app 153 KiB, read_fonts 148 KiB, epaint 131 KiB, egui 130 KiB, regex_syntax 77 KiB, hashbrown 85 KiB, ring 70 KiB. Trim taken: `tracing-subscriber` `EnvFilter` replaced by `filter::Targets` (same levels), features reduced to `fmt, registry, std`, which drops the regex stack. Result: exe **6 359 040 B (6.36 MB decimal, 6.07 MiB)**, zip about 3.3 MB. Still just above 6 MB for the bare exe; what is left (egui text and raster stack, rustls, bundled SQLite, ICU data via `idna`) would need risky surgery, so it stops here. The zip, which is the actual download-size number, is well under budget.
+
+### Task 17 — measurements and final verification
+
+Windows 11 (French), 1920x1080 at 100 %, Rust 1.100. Private bytes = `PrivateMemorySize64` (cross-checked with `Win32_PerfFormattedData_PerfProc_Process` PrivateBytes 5.33 MB, WorkingSetPrivate 4.4 MB). CPU = `\Processus(limitrings)\% temps processeur` over 60 s starting at the 5-minute mark, cross-checked with `TotalProcessorTime` deltas.
+
+Added `[profile.measure]` (`inherits = "release"`, `debug-assertions = true`) to the workspace `Cargo.toml`; `cargo build --profile measure -p limitrings` gives an 8 034 304 B exe with the dev switches on.
+
+| Build / state | Private MB at 5 min | Working set MB | Avg CPU (60 s) | CPU s per 60 s (TotalProcessorTime) |
+|---|---|---|---|---|
+| `measure` build, fake-claude, `LIMITRINGS_BASE_URL` + `FAKE_SESSION=1` + `AUTOCONNECT=1`, connected (62 % / 34 % rings shown) | **5.09** | 24.7 | 2.67 % of one core | 1.625 |
+| true release exe, no dev switches, disconnected, idle | **5.06** | 50.1 | 2.62 % of one core | 1.594 |
+
+Phase 1 was about 110 MB private; Phase 2 is about 5 MB (budget < 25 MB). Idle CPU is NOT ~0 %: about 2.6 % of one core in both states, i.e. something repaints or ticks while idle (Task 2's spike measured 0.0 % but did not have the app's tick). Flagged to the controller as a concern; the owner adds the connected-to-claude.ai number.
+
+Sizes: release exe **6 359 040 B (6.36 MB)**; zip of that exe (`Compress-Archive`, same as release.yml) **3 267 417 B (3.27 MB)**.
+
+Cold start (release exe, `Start-Process` to `FindWindowW("Claude Limit Checker")` found, 5 runs, ms): 82, 38, 32, 45, 30. The 82 ms is the first run after a fresh build (cold file cache); later runs are warm. Includes Start-Process overhead.
+
+Screenshot: `docs/screenshot.png` (244x146 px) replaced with a real-window capture of the `measure` build against fake-claude, connected state, over a neutral dark (#282C34) borderless form; no email or account data. Capture steps: fake server on 8787, measure exe with the three switches, a topmost background form behind the widget, `tools/screenshot-window.ps1`.
+
+Verification (all run on 4e0f192 + the Cargo.toml profile):
+
+```
+$ cargo fmt --all --check            -> no output, exit 0
+$ cargo clippy --workspace --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.90s    (exit 0)
+$ cargo test --workspace
+test result: ok. 256 passed; 0 failed; 0 ignored   (limitrings_app lib)
+test result: ok. 0 passed                          (limitrings bin)
+test result: ok. 112 passed; 0 failed; 3 ignored   (limits-core)
+test result: ok. 0 passed (x2, doctests)
+$ cargo build --release -p limitrings
+    Finished `release` profile [optimized] target(s)   -> target/release/limitrings.exe 6 359 040 B
+```
+
+All processes started here (limitrings, node fake server, background form) were stopped. The real Run key was not touched; the true release build was never connected.
