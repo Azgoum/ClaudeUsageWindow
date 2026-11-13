@@ -1,6 +1,7 @@
 //! Widget UI: pure logic (text, formatting, colors, geometry, fixtures) and shared interfaces.
 
 pub mod colors;
+pub mod connect;
 pub mod draw;
 pub mod fonts;
 pub mod format;

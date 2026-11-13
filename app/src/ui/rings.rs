@@ -191,7 +191,7 @@ fn line_galley(p: &Painter, text: &str, font: FontId, color: Color32) -> Arc<Gal
 }
 
 /// One line of text centered in a line box `line_height` tall.
-fn line_galley_in(
+pub(super) fn line_galley_in(
     p: &Painter,
     text: &str,
     font: FontId,
@@ -251,7 +251,7 @@ pub fn centered_line_fit(
 }
 
 /// Baseline of the galley's first row, from the galley top.
-fn baseline(g: &Galley) -> f32 {
+pub(super) fn baseline(g: &Galley) -> f32 {
     g.rows
         .first()
         .and_then(|r| r.row.glyphs.first().map(|gl| r.pos.y + gl.pos.y))

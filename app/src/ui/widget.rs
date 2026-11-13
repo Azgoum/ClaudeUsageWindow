@@ -1,4 +1,4 @@
-//! The widget: glass box, rings view (connected) and, from Task 10, the connect panels.
+//! The widget: glass box, rings view (connected) and the connect panels (`connect.rs`).
 //!
 //! Layout in CSS px = egui points (`ui/src/index.css` `.wd`): 1 px border; rings row padding
 //! 24 top, 14 sides, 22 bottom, two 104 wide columns 6 apart → box 244 wide.
@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use egui::{pos2, vec2, Color32, CursorIcon, LayerId, Painter, Rect, Vec2};
 use limits_core::{Conn, LimitKey, RingView};
 
+use super::connect::{Panel, PANEL_W};
 use super::ring::{err_line, is_near_limit};
 use super::rings::{self, Column, RingTweens, COLUMN_H, COLUMN_W, LINE_HEIGHT};
 use super::{colors, draw, fonts, FrameInput, FrameOutput, Repaint};
@@ -23,10 +24,6 @@ const ROW_GAP: f32 = 6.0;
 const FOOT_SIZE: f32 = 10.5;
 const FOOT_PAD_X: f32 = 12.0;
 const FOOT_PAD_BOTTOM: f32 = 9.0;
-/// `.wd .st { width: 242px; padding: 26px 18px 14px }` (Task 10 fills it).
-const PANEL_W: f32 = 242.0;
-const PANEL_PAD_Y: f32 = 26.0 + 14.0;
-
 /// The rings box: border, padded row of two columns, and the error foot line.
 fn rings_size(error: bool) -> Vec2 {
     let w = 2.0 * BORDER + 2.0 * ROW_PAD_SIDE + 2.0 * COLUMN_W + ROW_GAP;
@@ -88,9 +85,16 @@ impl Widget {
             _ => None,
         };
         let error = state.error.is_some();
-        let size = match rings {
-            Some(_) => rings_size(error),
-            None => vec2(PANEL_W + 2.0 * BORDER, PANEL_PAD_Y + 2.0 * BORDER),
+        let panel = match rings {
+            Some(_) => None,
+            None => Some(Panel::layout(
+                &ctx.layer_painter(LayerId::background()),
+                input,
+            )),
+        };
+        let size = match &panel {
+            None => rings_size(error),
+            Some(panel) => vec2(PANEL_W + 2.0 * BORDER, panel.height),
         };
         let rect = Rect::from_min_size(pos2(0.0, input.offset_y), size);
         let painter = ctx
@@ -100,18 +104,32 @@ impl Widget {
         draw::glass(&painter, rect, warn);
 
         let mut animating = false;
-        match rings {
-            Some(rings) => {
+        let mut actions = vec![];
+        match (rings, &panel) {
+            (Some(rings), _) => {
                 animating = self.paint_rings(&painter, rect, rings, [None, None], input);
             }
-            None => self.rings.iter_mut().for_each(RingTweens::reset),
+            (None, panel) => {
+                self.rings.iter_mut().for_each(RingTweens::reset);
+                if let Some(panel) = panel {
+                    let mut noted = vec![];
+                    let done = panel.paint(ctx, &painter, rect, input, &mut |n, r| {
+                        noted.push((n, r));
+                    });
+                    for (n, r) in noted {
+                        self.note(n, r);
+                    }
+                    actions = done.actions;
+                    animating = done.animating;
+                }
+            }
         }
 
         if ctx.pointer_hover_pos().is_some_and(|q| rect.contains(q)) {
             ctx.set_cursor_icon(CursorIcon::Grab);
         }
         FrameOutput {
-            actions: vec![],
+            actions,
             size,
             extra: 0.0,
             repaint: if animating {
@@ -177,9 +195,10 @@ mod snapshot_tests {
     use chrono::{DateTime, TimeZone, Utc};
     use egui::{pos2, vec2, Color32, LayerId, Rect};
     use egui_kittest::Harness;
-    use limits_core::AppState;
+    use limits_core::{AppState, Command};
 
     use super::*;
+    use crate::ui::Action;
     use crate::ui::{fixtures, fonts, Lang, Prefs};
 
     /// Animation clock far past every tween and entrance.
@@ -444,5 +463,134 @@ mod snapshot_tests {
     #[test]
     fn connected_ontrack_en_150() {
         snap("ontrack", Lang::En, 1.5, "connected_ontrack_en@1.5x");
+    }
+
+    /// Clicks the center of the named rect; returns the actions of the next frame.
+    fn click(kind: &str, name: &str) -> Vec<crate::ui::Action> {
+        let mut h = render(kind, Lang::En, 1.0);
+        let at = h.state().widget.debug_rects()[name].center();
+        let input = h.input_mut();
+        input.events.push(egui::Event::PointerMoved(at));
+        for pressed in [true, false] {
+            input.events.push(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.step();
+        h.state().out.as_ref().expect("shown").actions.clone()
+    }
+
+    #[test]
+    fn connect_button_sends_connect() {
+        assert_eq!(
+            click("disconnected", "connect_button"),
+            vec![Action::Send(Command::Connect)]
+        );
+        assert_eq!(
+            click("expired", "connect_button"),
+            vec![Action::Send(Command::Connect)]
+        );
+    }
+
+    #[test]
+    fn waiting_links() {
+        assert_eq!(
+            click("waiting", "link_0"),
+            vec![Action::Send(Command::Connect)]
+        );
+        assert_eq!(
+            click("waiting", "link_1"),
+            vec![Action::Send(Command::CancelConnect)]
+        );
+    }
+
+    #[test]
+    fn get_firefox_opens_download_page() {
+        assert_eq!(
+            click("needsFirefox", "connect_button"),
+            vec![Action::OpenUrl("https://www.mozilla.org/firefox/")]
+        );
+    }
+
+    #[test]
+    fn waiting_repaints_continuously_others_idle() {
+        assert_eq!(show("waiting").repaint, Repaint::Now);
+        assert_eq!(show("disconnected").repaint, Repaint::Idle);
+    }
+
+    #[test]
+    fn panel_text_wraps_inside_the_content_width() {
+        for kind in [
+            "disconnected",
+            "timedout",
+            "waiting",
+            "needsFirefox",
+            "expired",
+        ] {
+            for lang in [Lang::En, Lang::Fr] {
+                let h = render(kind, lang, 1.0);
+                let body = h.state().widget.debug_rects()["body"];
+                assert!(
+                    body.left() >= 19.0 && body.right() <= 225.01,
+                    "{kind} {body:?}"
+                );
+            }
+        }
+    }
+
+    fn snap_panel(kind: &str, lang: Lang, name: &str) {
+        render(kind, lang, 1.0).snapshot(name);
+    }
+    #[test]
+    fn disconnected_en() {
+        snap_panel("disconnected", Lang::En, "disconnected_en");
+    }
+    #[test]
+    fn disconnected_fr() {
+        snap_panel("disconnected", Lang::Fr, "disconnected_fr");
+    }
+    #[test]
+    fn timedout_en() {
+        snap_panel("timedout", Lang::En, "timedout_en");
+    }
+    #[test]
+    fn waiting_en() {
+        snap_panel("waiting", Lang::En, "waiting_en");
+    }
+    #[test]
+    fn waiting_fr() {
+        snap_panel("waiting", Lang::Fr, "waiting_fr");
+    }
+    #[test]
+    fn needs_firefox_en() {
+        snap_panel("needsFirefox", Lang::En, "needs_firefox_en");
+    }
+    #[test]
+    fn needs_firefox_fr() {
+        snap_panel("needsFirefox", Lang::Fr, "needs_firefox_fr");
+    }
+    #[test]
+    fn expired_en() {
+        snap_panel("expired", Lang::En, "expired_en");
+    }
+    #[test]
+    fn expired_fr() {
+        snap_panel("expired", Lang::Fr, "expired_fr");
+    }
+    #[test]
+    fn connected_no_rings_error_en() {
+        let mut f = fixture("error", Lang::En);
+        f.state.rings = None;
+        let mut h = Harness::builder()
+            .with_size(vec2(244.0, 146.0))
+            .with_context_setup(fonts::install)
+            .build_ui_state(|ui, f: &mut Fixture| frame(ui.ctx(), f), f);
+        let size = h.state().out.as_ref().expect("shown").size;
+        h.set_size(size);
+        h.run();
+        h.snapshot("connected_no_rings_error_en");
     }
 }
