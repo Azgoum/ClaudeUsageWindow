@@ -56,6 +56,8 @@ pub struct Panel {
 pub struct Painted {
     pub actions: Vec<Action>,
     pub animating: bool,
+    /// The button and links: a press there never starts a window drag.
+    pub nodrag: Vec<Rect>,
 }
 
 fn wrapped(p: &Painter, text: &str, color: Color32) -> Arc<Galley> {
@@ -179,7 +181,9 @@ impl Panel {
         let pointer = ctx.pointer_hover_pos();
         let released = ctx.input(|i| i.pointer.primary_released());
         let mut actions = vec![];
+        let mut nodrag = vec![];
         let mut hit = |r: Rect, action: &Action| -> bool {
+            nodrag.push(r);
             let hover = pointer.is_some_and(|q| r.contains(q));
             if hover {
                 ctx.set_cursor_icon(CursorIcon::PointingHand);
@@ -245,6 +249,7 @@ impl Panel {
         Painted {
             actions,
             animating: self.spinner && !input.reduced_motion,
+            nodrag,
         }
     }
 }

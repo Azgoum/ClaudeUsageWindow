@@ -10,9 +10,10 @@ use egui::{pos2, vec2, Color32, CursorIcon, LayerId, Painter, Rect, Vec2};
 use limits_core::{Conn, LimitKey, RingView};
 
 use super::connect::{Panel, PANEL_W};
+use super::controls::Controls;
 use super::ring::{err_line, is_near_limit};
 use super::rings::{self, Column, RingTweens, COLUMN_H, COLUMN_W, LINE_HEIGHT};
-use super::{colors, draw, fonts, FrameInput, FrameOutput, Repaint};
+use super::{colors, draw, fonts, Action, FrameInput, FrameOutput, Repaint};
 use crate::anim::RingFrame;
 
 const BORDER: f32 = 1.0;
@@ -42,8 +43,24 @@ fn gray_half(c: Color32) -> Color32 {
     Color32::from_rgba_unmultiplied(l, l, l, (f32::from(a) * 0.5).round() as u8)
 }
 
+/// Where the primary button went down this frame (pressed and released in one frame too).
+fn primary_press(ctx: &egui::Context) -> Option<egui::Pos2> {
+    ctx.input(|i| {
+        i.events.iter().find_map(|e| match e {
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                ..
+            } => Some(*pos),
+            _ => None,
+        })
+    })
+}
+
 pub struct Widget {
     rings: [RingTweens; 2],
+    controls: Controls,
     #[cfg(test)]
     debug_rects: BTreeMap<&'static str, Rect>,
 }
@@ -58,6 +75,7 @@ impl Widget {
     pub fn new() -> Widget {
         Widget {
             rings: [RingTweens::new(), RingTweens::new()],
+            controls: Controls::default(),
             #[cfg(test)]
             debug_rects: BTreeMap::new(),
         }
@@ -105,6 +123,7 @@ impl Widget {
 
         let mut animating = false;
         let mut actions = vec![];
+        let mut nodrag = vec![];
         match (rings, &panel) {
             (Some(rings), _) => {
                 animating = self.paint_rings(&painter, rect, rings, [None, None], input);
@@ -121,12 +140,31 @@ impl Widget {
                     }
                     actions = done.actions;
                     animating = done.animating;
+                    nodrag = done.nodrag;
                 }
             }
         }
 
         if ctx.pointer_hover_pos().is_some_and(|q| rect.contains(q)) {
             ctx.set_cursor_icon(CursorIcon::Grab);
+        }
+        let mut noted = vec![];
+        let ctl = self
+            .controls
+            .show(ctx, &painter, rect, input, rings.is_some(), &mut |n, r| {
+                noted.push((n, r));
+            });
+        for (n, r) in noted {
+            self.note(n, r);
+        }
+        actions.extend(ctl.actions);
+        animating |= ctl.animating;
+        nodrag.extend(ctl.nodrag);
+        // A primary press on the glass, off every control, moves the window.
+        if primary_press(ctx)
+            .is_some_and(|q| rect.contains(q) && !nodrag.iter().any(|r| r.contains(q)))
+        {
+            actions.push(Action::StartDrag);
         }
         FrameOutput {
             actions,
@@ -191,7 +229,7 @@ impl Widget {
 }
 
 #[cfg(test)]
-mod snapshot_tests {
+pub(crate) mod snapshot_tests {
     use chrono::{DateTime, TimeZone, Utc};
     use egui::{pos2, vec2, Color32, LayerId, Rect};
     use egui_kittest::Harness;
@@ -231,34 +269,49 @@ mod snapshot_tests {
         }
     }
 
-    pub(super) struct Fixture {
+    pub(crate) struct Fixture {
         pub widget: Widget,
         pub state: AppState,
         pub prefs: Prefs,
         pub out: Option<FrameOutput>,
+        /// Animation clock of the next frame.
+        pub t: f64,
     }
 
     /// Paints the backdrop and the widget, settled, into a pass of `ctx`.
-    fn frame(ctx: &egui::Context, f: &mut Fixture) {
+    pub(crate) fn frame(ctx: &egui::Context, f: &mut Fixture) {
         ctx.layer_painter(LayerId::background())
             .rect_filled(ctx.content_rect(), 0, BACKDROP);
-        let out = f.widget.show(ctx, &input(&f.state, &f.prefs, T_SETTLED));
+        let out = f.widget.show(ctx, &input(&f.state, &f.prefs, f.t));
         f.out = Some(out);
     }
 
-    fn fixture(kind: &str, lang: Lang) -> Fixture {
+    pub(crate) fn fixture(kind: &str, lang: Lang) -> Fixture {
         Fixture {
             widget: Widget::new(),
             state: fixtures::scenario(kind, now()),
             prefs: prefs(lang),
             out: None,
+            t: T_SETTLED,
         }
     }
 
-    pub(super) fn render(kind: &str, lang: Lang, ppp: f32) -> Harness<'static, Fixture> {
+    pub(crate) fn render(kind: &str, lang: Lang, ppp: f32) -> Harness<'static, Fixture> {
+        render_dt(kind, lang, ppp, 0.25)
+    }
+
+    /// [`render`] with egui's clock advancing `step_dt` seconds per harness step.
+    pub(crate) fn render_dt(
+        kind: &str,
+        lang: Lang,
+        ppp: f32,
+        step_dt: f32,
+    ) -> Harness<'static, Fixture> {
         let mut h = Harness::builder()
             .with_size(vec2(244.0, 146.0))
             .with_pixels_per_point(ppp)
+            .with_step_dt(step_dt)
+            .with_render_cursor(false)
             .with_context_setup(fonts::install)
             .build_ui_state(
                 |ui, f: &mut Fixture| frame(ui.ctx(), f),
@@ -271,7 +324,7 @@ mod snapshot_tests {
     }
 
     /// One plain pass (no renderer): the widget's output for `kind`, English.
-    fn show(kind: &str) -> FrameOutput {
+    pub(crate) fn show(kind: &str) -> FrameOutput {
         let ctx = egui::Context::default();
         fonts::install(&ctx);
         let mut f = fixture(kind, Lang::En);

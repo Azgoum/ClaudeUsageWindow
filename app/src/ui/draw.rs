@@ -23,7 +23,7 @@ const CORNER_POINTS: usize = 16;
 /// Concentric rings per blurred band (inner glow, soft shadow side).
 const BAND_STEPS: usize = 16;
 /// `.wd .flags svg { border-radius: 2px }`.
-const FLAG_RADIUS: f32 = 2.0;
+pub(crate) const FLAG_RADIUS: f32 = 2.0;
 /// Waiting spinner: one turn per 0.8 s.
 const SPIN_PERIOD: f64 = 0.8;
 
@@ -411,7 +411,7 @@ pub enum Icon {
 }
 
 /// The icon's subpaths in viewBox units, arcs flattened.
-fn icon_paths(kind: Icon) -> Vec<Vec<Pos2>> {
+pub(crate) fn icon_paths(kind: Icon) -> Vec<Vec<Pos2>> {
     match kind {
         // M5 12h14
         Icon::Minus => vec![vec![pos2(5.0, 12.0), pos2(19.0, 12.0)]],
@@ -565,33 +565,39 @@ fn flag_clip(rect: Rect, view: Rect) -> Vec<Pos2> {
     clip_convex(&rounded, &v)
 }
 
-/// The French flag (`viewBox 0 0 3 2`) fitted in `rect`, corners rounded 2 pt.
-pub fn flag_fr(p: &Painter, rect: Rect) {
+/// A flag as convex pieces painted in order (later ones on top), in points, all to be
+/// clipped to the flag's rounded box.
+pub(crate) type FlagPieces = Vec<(Vec<Pos2>, Color32)>;
+
+/// The French flag (`viewBox 0 0 3 2`) fitted in `rect`: three stripes, stacked so each
+/// later stripe's anti-aliased edge blends over the previous one instead of leaving a
+/// seam of background between them.
+pub(crate) fn flag_fr_pieces(rect: Rect) -> FlagPieces {
     let view = fit(rect, 3.0, 2.0);
-    let clip = flag_clip(rect, view);
     let x = |u: f32| view.left() + view.width() * u / 3.0;
-    // Stacked so each later stripe's anti-aliased edge blends over the previous
-    // one instead of leaving a seam of background between them.
-    let stripes = [
+    [
         (0.0, colors::FR_BLUE),
         (1.0, Color32::WHITE),
         (2.0, colors::FR_RED),
-    ];
-    for (u, color) in stripes {
+    ]
+    .into_iter()
+    .map(|(u, color)| {
         let poly = rect_poly(x(u), view.top(), view.right(), view.bottom());
-        fill_clipped(p, &poly, &clip, color);
-    }
+        (poly.to_vec(), color)
+    })
+    .collect()
 }
 
-/// The Union Jack (`viewBox 0 0 60 30`) fitted in `rect`, corners rounded 2 pt.
-pub fn flag_uk(p: &Painter, rect: Rect) {
+/// The Union Jack (`viewBox 0 0 60 30`) fitted in `rect`.
+pub(crate) fn flag_uk_pieces(rect: Rect) -> FlagPieces {
     let view = fit(rect, 60.0, 30.0);
-    let clip = flag_clip(rect, view);
     let s = view.width() / 60.0;
     let map = |q: Pos2| view.min + q.to_vec2() * s;
-    let fill = |poly: &[Pos2], color: Color32| {
-        let poly: Vec<Pos2> = poly.iter().map(|&q| map(q)).collect();
-        fill_clipped(p, &poly, &clip, color);
+    let mut pieces: FlagPieces = vec![];
+    let mut fill = |poly: &[Pos2], color: Color32| {
+        if poly.len() >= 3 {
+            pieces.push((poly.iter().map(|&q| map(q)).collect(), color));
+        }
     };
     // A butt-capped stroke of `width` along a → b, as a quad.
     let stroke = |a: Pos2, b: Pos2, width: f32| -> [Pos2; 4] {
@@ -633,6 +639,34 @@ pub fn flag_uk(p: &Painter, rect: Rect) {
         fill(&rect_poly(30.0 - half, 0.0, 30.0 + half, 30.0), color);
         fill(&rect_poly(0.0, 15.0 - half, 60.0, 15.0 + half), color);
     }
+    pieces
+}
+
+/// The flag's visible area: its `viewBox` fitted in `rect` (`xMidYMid meet`).
+pub(crate) fn flag_view(rect: Rect, uk: bool) -> Rect {
+    if uk {
+        fit(rect, 60.0, 30.0)
+    } else {
+        fit(rect, 3.0, 2.0)
+    }
+}
+
+/// Paints `pieces` clipped to the 2 pt rounded box of `rect` and the fitted `view`.
+fn paint_flag(p: &Painter, rect: Rect, view: Rect, pieces: &FlagPieces) {
+    let clip = flag_clip(rect, view);
+    for (poly, color) in pieces {
+        fill_clipped(p, poly, &clip, *color);
+    }
+}
+
+/// The French flag (`viewBox 0 0 3 2`) fitted in `rect`, corners rounded 2 pt.
+pub fn flag_fr(p: &Painter, rect: Rect) {
+    paint_flag(p, rect, flag_view(rect, false), &flag_fr_pieces(rect));
+}
+
+/// The Union Jack (`viewBox 0 0 60 30`) fitted in `rect`, corners rounded 2 pt.
+pub fn flag_uk(p: &Painter, rect: Rect) {
+    paint_flag(p, rect, flag_view(rect, true), &flag_uk_pieces(rect));
 }
 
 /// Test sheet of every primitive, 260×120 pt from `origin` (snapshot and

@@ -2,6 +2,7 @@
 
 pub mod colors;
 pub mod connect;
+pub mod controls;
 pub mod draw;
 pub mod fonts;
 pub mod format;
