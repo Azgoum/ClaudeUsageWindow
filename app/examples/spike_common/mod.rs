@@ -28,7 +28,7 @@ impl Scene {
 
         let painter = ctx.layer_painter(LayerId::background());
         let rect = ctx.content_rect();
-        limitrings_app::paint_glass(&painter, rect);
+        limitrings_app::ui::draw::glass(&painter, rect, false);
 
         let center = Pos2::new(rect.left() + 50.0, rect.center().y);
         painter.circle_stroke(center, RING_RADIUS, Stroke::new(RING_WIDTH, RING_TRACK));

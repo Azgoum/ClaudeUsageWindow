@@ -71,6 +71,22 @@ pub const PILL_GOLD_TEXT: Color32 = rgb(0xfd, 0xe6, 0x8a);
 pub const PILL_GOLD_BORDER: Color32 = rgba(250, 204, 21, 140);
 pub const PILL_GOLD_GLOW: Color32 = rgba(250, 204, 21, 77);
 
+/// Glass (Global Constraints): fill `rgba(22,22,28,.80)`, border `rgba(255,255,255,.09)`,
+/// top inner highlight `rgba(255,255,255,.06)`.
+pub const GLASS_FILL: Color32 = rgba(22, 22, 28, 204);
+pub const GLASS_BORDER: Color32 = rgba(255, 255, 255, 23);
+pub const GLASS_HIGHLIGHT: Color32 = rgba(255, 255, 255, 15);
+/// Near-limit glass: border `rgba(251,113,133,.55)`, inner glow `rgba(251,113,133,.22)`.
+pub const WARN_BORDER: Color32 = rgba(251, 113, 133, 140);
+pub const WARN_GLOW: Color32 = rgba(251, 113, 133, 56);
+/// Waiting spinner ring `rgba(255,255,255,.2)` (its head is white).
+pub const SPIN_TRACK: Color32 = rgba(255, 255, 255, 51);
+/// Flags (`ui/src/components/Flags.tsx`).
+pub const FR_BLUE: Color32 = rgb(0x00, 0x55, 0xa4);
+pub const FR_RED: Color32 = rgb(0xef, 0x41, 0x35);
+pub const UK_BLUE: Color32 = rgb(0x01, 0x21, 0x69);
+pub const UK_RED: Color32 = rgb(0xc8, 0x10, 0x2e);
+
 pub fn pace_color(p: Pace) -> Color32 {
     match p {
         Pace::Ahead => RED,
