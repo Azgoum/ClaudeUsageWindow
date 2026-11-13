@@ -1,0 +1,45 @@
+[package]
+name = "limitrings"
+version = "0.2.0"
+description = "Claude Limit Checker: unofficial claude.ai usage widget"
+edition = "2021"
+
+[lib]
+name = "limitrings_app"
+
+[[bin]]
+name = "limitrings"
+path = "src/main.rs"
+
+[features]
+spike-glow = ["dep:eframe", "eframe/glow"]
+spike-wgpu = ["dep:eframe", "eframe/wgpu_no_default_features", "dep:wgpu"]
+# The layered host is the app's own renderer; this feature only gates the example.
+spike-layered = []
+
+[dependencies]
+egui = { version = "0.37", default-features = false }
+eframe = { version = "0.37", default-features = false, optional = true }
+wgpu = { version = "30", default-features = false, features = ["dx12"], optional = true }
+egui-winit = { version = "0.37", default-features = false }
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[[example]]
+name = "spike_glow"
+required-features = ["spike-glow"]
+
+[[example]]
+name = "spike_wgpu"
+required-features = ["spike-wgpu"]
+
+[[example]]
+name = "spike_layered"
+required-features = ["spike-layered"]

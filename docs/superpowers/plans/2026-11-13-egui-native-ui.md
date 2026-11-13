@@ -693,4 +693,23 @@ strip = true
 
 ## Ledger
 
-*(Filled during execution: spike numbers and renderer choice (Task 2), visual differences left (Task 15), exe/zip sizes (Task 16), final measurements and verification output (Task 17).)*
+*(Filled during execution: visual differences left (Task 15), exe/zip sizes (Task 16), final measurements and verification output (Task 17).)*
+
+### Task 2 — renderer spike
+
+Release builds, Windows 11, 1920×1080 at 100 %, Rust 1.100 (egui/eframe 0.37 need ≥ 1.95). Each spike ran 60 s (ring animation done after 1.2 s), then private bytes (`PrivateMemorySize64`) and CPU over 10 s (`\Processus(spike_x)\% temps processeur` on this French Windows, cross-checked with `TotalProcessorTime`). Screenshots over a full-screen multicolor checkerboard, corners zoomed ×12.
+
+| Renderer | Private MB at 60 s | Avg CPU % | Transparent corners clean? | Notes |
+|---|---|---|---|---|
+| `eframe` + `glow` | 127.9 | 0.0 | **No**: black corners, glass opaque (checkerboard not visible through the 80 % fill) | OpenGL driver cost alone is ~5× the budget. |
+| `eframe` + `wgpu` (DX12 only) | 377.8 | 0.0 | **No**: same black corners, opaque glass | DXGI flip-model swap chain on a plain HWND has no per-pixel alpha. |
+| `winit` + `egui` + CPU raster + `UpdateLayeredWindow` | **3.5** | 0.0 | **Yes**: anti-aliased rounded corners, checkerboard visible through the glass, no fringe | Working set 16 MB (mostly shared system DLL pages). |
+
+`softbuffer` was not tried: it presents with `BitBlt`/`StretchDIBits` (no per-pixel alpha on Win32), which is why the layered path uses `UpdateLayeredWindow` from a premultiplied DIB instead.
+
+Gotcha found and fixed: winit rewrites `GWL_EXSTYLE` from its own flags on every style change (show, minimize, always-on-top...), which drops `WS_EX_LAYERED`; `UpdateLayeredWindow` then fails with error 87 and the window falls back to an opaque redirection bitmap (black corners). `platform::LayeredSurface` subclasses the window and keeps `WS_EX_LAYERED` in every `WM_STYLECHANGING`.
+
+Opt-level (layered spike, LTO + `codegen-units = 1` + `panic = "abort"` + strip): `opt-level = 3` exe 3.10 MB; `"s"` 2.74 MB exe, 3.7 MB private; `"z"` 3.40 MB exe, 3.8 MB private, both 0 % idle CPU and the same rendering. **Keep `"s"`** (`"z"` measured larger here).
+
+**Choice: the layered CPU host** (`app/src/host.rs` + `render.rs` + `platform/windows.rs`): the only variant with a clean transparent rounded window, and 3.5 MB private against a 25 MB budget. No eframe in the app; Task 15 extends `host.rs` (the spike's loop) instead of writing an `eframe::App`. Snapshot tests (Task 8+) still use `egui_kittest` with wgpu as a dev-dependency only.
+

@@ -1,5 +1,5 @@
 [package]
-name = "limitrings"
+name = "limitrings-tauri"
 version = "0.1.0"
 description = "Claude Limit Checker: unofficial claude.ai usage widget"
 edition = "2021"
