@@ -14,8 +14,6 @@ path = "src/main.rs"
 [features]
 spike-glow = ["dep:eframe", "eframe/glow"]
 spike-wgpu = ["dep:eframe", "eframe/wgpu_no_default_features", "dep:wgpu"]
-# The layered host is the app's own renderer; this feature only gates the example.
-spike-layered = []
 
 [dependencies]
 egui = { version = "0.37", default-features = false }
@@ -24,7 +22,7 @@ wgpu = { version = "30", default-features = false, features = ["dx12"], optional
 egui-winit = { version = "0.37", default-features = false }
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
 limits-core = { path = "../crates/limits-core" }
-tokio = { version = "1", features = ["sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 url = "2"
 anyhow = "1"
 tracing = "0.1"
@@ -32,6 +30,7 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 file-rotate = "0.7"
 serde = { version = "1", features = ["derive"] }
 chrono = "0.4"
+sys-locale = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
@@ -40,6 +39,8 @@ windows-sys = { version = "0.61", features = [
     "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_System_Threading",
+    "Win32_UI_Controls",
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
@@ -49,6 +50,7 @@ tempfile = "3"
 ttf-parser = "0.25"
 image = { version = "0.25", default-features = false, features = ["png"] }
 egui_kittest = { version = "0.37", features = ["wgpu", "snapshot"] }
+tokio = { version = "1", features = ["macros", "rt", "time"] }
 
 [[example]]
 name = "spike_glow"
@@ -58,6 +60,6 @@ required-features = ["spike-glow"]
 name = "spike_wgpu"
 required-features = ["spike-wgpu"]
 
-[[example]]
-name = "spike_layered"
-required-features = ["spike-layered"]
+[build-dependencies]
+png = "0.17"
+winresource = "0.1.34"

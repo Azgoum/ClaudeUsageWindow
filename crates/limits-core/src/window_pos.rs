@@ -67,7 +67,7 @@ pub fn persisted_position(moved: (i32, i32), room: &PopupRoom) -> (i32, i32) {
 }
 
 /// Remembers the widget's resting position while the window is temporarily expanded.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct PopupRoom {
     /// Resting position and the bounds last applied, while expanded.
     state: Option<((i32, i32), Bounds)>,

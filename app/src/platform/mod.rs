@@ -28,14 +28,24 @@ use limits_core::Rect;
 
 pub use imp::InstanceGuard;
 
+/// Window class of the widget window: [`focus_existing`] only matches windows of
+/// this class, so an unrelated window with the same title is never touched.
+pub const WINDOW_CLASS: &str = "limitrings-widget";
+
+/// The raw HWND of `window` (`None` off Windows).
+pub fn hwnd_of(window: &winit::window::Window) -> Option<isize> {
+    imp::hwnd_of(window)
+}
+
 /// Claims the named single-instance mutex; `None` when another process holds it.
 pub fn single_instance(name: &str) -> Option<InstanceGuard> {
     imp::single_instance(name)
 }
 
-/// Restores and focuses the window titled `title`; false when none exists.
+/// Restores and focuses the [`WINDOW_CLASS`] window titled `title`; false when
+/// none exists.
 pub fn focus_existing(title: &str) -> bool {
-    imp::focus_existing(title)
+    imp::focus_existing(WINDOW_CLASS, title)
 }
 
 /// Work areas of every monitor, in physical pixels.
@@ -62,18 +72,62 @@ pub fn set_window_bounds(hwnd: isize, pos: (i32, i32), size: (i32, i32)) {
     imp::set_window_bounds(hwnd, pos, size)
 }
 
+/// For a "pointer left" report on `hwnd`: true when the cursor is in fact still
+/// over the window (Windows reports a leave when a layered window moves under a
+/// still cursor). Leave tracking is then re-armed, so the real leave is still
+/// reported later.
+pub fn spurious_leave(hwnd: isize) -> bool {
+    imp::spurious_leave(hwnd)
+}
+
 pub fn is_minimized(hwnd: isize) -> bool {
     imp::is_minimized(hwnd)
 }
 
-/// Opens `url` with the default handler.
+/// Opens an `http://` or `https://` `url` with the default handler; any other
+/// scheme (a file, a program) is refused.
 pub fn open_url(url: &str) -> std::io::Result<()> {
+    if !is_web_url(url) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("refusing to open a non-web URL: {url}"),
+        ));
+    }
     imp::open_url(url)
+}
+
+fn is_web_url(url: &str) -> bool {
+    let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
 }
 
 /// True when the user turned off system animations.
 pub fn reduced_motion() -> bool {
     imp::reduced_motion()
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::*;
+
+    #[test]
+    fn only_web_urls_are_opened() {
+        assert!(is_web_url("https://claude.ai/settings/usage"));
+        assert!(is_web_url("HTTP://example.com"));
+        for bad in [
+            "file:///C:/Windows/notepad.exe",
+            r"C:\x.exe",
+            "calc",
+            "",
+            "ms-settings:",
+        ] {
+            assert!(!is_web_url(bad), "{bad}");
+            assert_eq!(
+                open_url(bad).unwrap_err().kind(),
+                std::io::ErrorKind::InvalidInput
+            );
+        }
+    }
 }
 
 #[cfg(all(test, windows))]

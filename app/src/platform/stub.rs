@@ -20,7 +20,7 @@ impl Surface {
         &mut self.pixels
     }
 
-    pub fn present(&mut self) -> io::Result<()> {
+    pub fn present(&mut self, _pos: Option<(i32, i32)>) -> io::Result<()> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "transparent window presentation is only implemented on Windows",
@@ -34,7 +34,11 @@ pub fn single_instance(_name: &str) -> Option<InstanceGuard> {
     Some(InstanceGuard)
 }
 
-pub fn focus_existing(_title: &str) -> bool {
+pub fn hwnd_of(_window: &Window) -> Option<isize> {
+    None
+}
+
+pub fn focus_existing(_class: &str, _title: &str) -> bool {
     false
 }
 
@@ -55,6 +59,10 @@ pub fn window_rect(_hwnd: isize) -> Option<Rect> {
 }
 
 pub fn set_window_bounds(_hwnd: isize, _pos: (i32, i32), _size: (i32, i32)) {}
+
+pub fn spurious_leave(_hwnd: isize) -> bool {
+    false
+}
 
 pub fn is_minimized(_hwnd: isize) -> bool {
     false

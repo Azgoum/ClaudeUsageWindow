@@ -25,6 +25,14 @@ use windows_sys::Win32::{
     },
 };
 
+/// The raw HWND behind a winit window.
+pub fn hwnd_of(window: &Window) -> Option<isize> {
+    match window.window_handle().ok()?.as_raw() {
+        RawWindowHandle::Win32(handle) => Some(handle.hwnd.get()),
+        _ => None,
+    }
+}
+
 /// Subclass id of [`keep_layered`] on the host window.
 const SUBCLASS_ID: usize = 1;
 
@@ -43,10 +51,7 @@ impl Surface {
     /// Makes `window` a layered window for good and prepares an empty surface.
     /// Must be called on the thread that owns `window` (the event loop thread).
     pub fn new(window: &Window) -> Self {
-        let hwnd = match window.window_handle().expect("window handle").as_raw() {
-            RawWindowHandle::Win32(handle) => handle.hwnd.get() as HWND,
-            other => unreachable!("winit on Windows gave a {other:?} handle"),
-        };
+        let hwnd = hwnd_of(window).expect("a Win32 window handle") as HWND;
         // SAFETY: `hwnd` is a live window owned by this thread.
         unsafe {
             // winit rewrites GWL_EXSTYLE from its own flags whenever it changes a
@@ -56,6 +61,13 @@ impl Surface {
             assert!(subclassed != 0, "SetWindowSubclass failed");
             let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED as isize);
+            // No visual styles for this window: on a frame change (always-on-top)
+            // the theme gives a captioned window a region of its current size,
+            // and once Windows has had one, the layered window's input shape
+            // stays that size when the window grows (menu items below it get no
+            // clicks), even after the region is removed.
+            let empty = [0u16];
+            windows_sys::Win32::UI::Controls::SetWindowTheme(hwnd, empty.as_ptr(), empty.as_ptr());
         }
         // SAFETY: a null DC asks for a memory DC compatible with the screen.
         let dc = unsafe { CreateCompatibleDC(ptr::null_mut()) };
@@ -83,8 +95,10 @@ impl Surface {
         unsafe { std::slice::from_raw_parts_mut(self.bits, width * height) }
     }
 
-    /// Shows the current pixels, resizing the window to the buffer.
-    pub fn present(&mut self) -> io::Result<()> {
+    /// Shows the current pixels, resizing the window to the buffer and, with
+    /// `pos`, moving it there in the same step (no frame where the window has
+    /// its new bounds but old pixels).
+    pub fn present(&mut self, pos: Option<(i32, i32)>) -> io::Result<()> {
         let size = SIZE {
             cx: self.width as i32,
             cy: self.height as i32,
@@ -96,6 +110,8 @@ impl Surface {
             SourceConstantAlpha: 255,
             AlphaFormat: AC_SRC_ALPHA as u8,
         };
+        self.drop_window_region();
+        let dst = pos.map(|(x, y)| POINT { x, y });
         // SAFETY: all handles are live; a null destination point keeps the
         // window where it is.
         let ok = unsafe {
@@ -103,7 +119,7 @@ impl Surface {
             UpdateLayeredWindow(
                 self.hwnd,
                 ptr::null_mut(),
-                ptr::null(),
+                dst.as_ref().map_or(ptr::null(), |p| p as *const POINT),
                 &size,
                 self.dc,
                 &origin,
@@ -118,6 +134,27 @@ impl Surface {
             Err(io::Error::from_raw_os_error(code as i32))
         } else {
             Ok(())
+        }
+    }
+
+    /// Safety net: a window region clips a layered window whatever
+    /// `UpdateLayeredWindow` is given, so a popup that grows the window would be
+    /// cut off below it. Turning theming off in `new` keeps Windows from adding
+    /// one on a frame change; should one appear anyway, it is dropped and logged.
+    fn drop_window_region(&self) {
+        use windows_sys::Win32::Graphics::Gdi::{GetWindowRgnBox, SetWindowRgn, RGN_ERROR};
+        let mut bounds = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        // SAFETY: `bounds` is a valid out pointer; a null region removes it.
+        unsafe {
+            if GetWindowRgnBox(self.hwnd, &mut bounds) != RGN_ERROR {
+                tracing::debug!(?bounds.right, ?bounds.bottom, "dropping a window region");
+                SetWindowRgn(self.hwnd, ptr::null_mut(), 0);
+            }
         }
     }
 
@@ -253,12 +290,12 @@ pub fn single_instance(name: &str) -> Option<InstanceGuard> {
     Some(InstanceGuard(handle))
 }
 
-/// Restores and focuses the top-level window titled `title`.
-pub fn focus_existing(title: &str) -> bool {
-    let title = wide(title);
-    // SAFETY: `title` is NUL-terminated; a null class matches any class.
+/// Restores and focuses the top-level window of class `class` titled `title`.
+pub fn focus_existing(class: &str, title: &str) -> bool {
+    let (class, title) = (wide(class), wide(title));
+    // SAFETY: both strings are NUL-terminated and outlive the call.
     unsafe {
-        let hwnd = FindWindowW(ptr::null(), title.as_ptr());
+        let hwnd = FindWindowW(class.as_ptr(), title.as_ptr());
         if hwnd.is_null() {
             return false;
         }
@@ -344,6 +381,28 @@ pub fn set_window_bounds(hwnd: isize, pos: (i32, i32), size: (i32, i32)) {
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
     }
+}
+
+pub fn spurious_leave(hwnd: isize) -> bool {
+    use windows_sys::Win32::UI::{
+        Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT},
+        WindowsAndMessaging::{GetCursorPos, WindowFromPoint},
+    };
+    let mut at = POINT { x: 0, y: 0 };
+    // SAFETY: `at` is a valid out pointer; WindowFromPoint honors the layered
+    // window's per-pixel hit testing (transparent pixels are not the window).
+    let over = unsafe { GetCursorPos(&mut at) != 0 && WindowFromPoint(at) == hwnd as HWND };
+    if over {
+        let mut track = TRACKMOUSEEVENT {
+            cbSize: mem::size_of::<TRACKMOUSEEVENT>() as u32,
+            dwFlags: TME_LEAVE,
+            hwndTrack: hwnd as HWND,
+            dwHoverTime: 0,
+        };
+        // SAFETY: `track` is fully initialized and `hwnd` belongs to this thread.
+        unsafe { TrackMouseEvent(&mut track) };
+    }
+    over
 }
 
 pub fn is_minimized(hwnd: isize) -> bool {

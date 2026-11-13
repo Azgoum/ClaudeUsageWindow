@@ -713,3 +713,19 @@ Opt-level (layered spike, LTO + `codegen-units = 1` + `panic = "abort"` + strip)
 
 **Choice: the layered CPU host** (`app/src/host.rs` + `render.rs` + `platform/windows.rs`): the only variant with a clean transparent rounded window, and 3.5 MB private against a 25 MB budget. No eframe in the app; Task 15 extends `host.rs` (the spike's loop) instead of writing an `eframe::App`. Snapshot tests (Task 8+) still use `egui_kittest` with wgpu as a dev-dependency only.
 
+
+### Task 15 — real window
+
+Debug build against `tools/fake-claude`, Windows 11, 1920×1080 at 100 %. Every Step 5 check passed (see `.superpowers/sdd/2026-11-13-egui-native-ui/task-15-report.md`). Host gotchas found and fixed on the way:
+
+- **Window moves and resizes go through `UpdateLayeredWindow` only** (`Surface::present(pos)`), together with the pixels. `SetWindowPos` first, then present, left an instant where the cursor sat over transparent (click-through) pixels: Windows reported the pointer gone and a tooltip that grew the window upward closed and reopened in a loop. Between passes the host also shifts egui's pointer by the window move, and a `CursorLeft` within 300 ms of our own move is ignored when `WindowFromPoint` still finds the widget (tracking re-armed).
+- **Theming is off for the widget window** (`SetWindowTheme(hwnd, "", "")`). On a frame change (toggling always-on-top) the theme gave the captioned layered window a region of its current size. Once it had one, its input shape stayed that size when a menu grew the window, so the menu's lower items got no clicks, even after the region was removed. `Surface::present` still drops any region it finds (safety net, logged).
+- winit 0.30.13 `drag_window` posts `WM_NCLBUTTONDOWN` with a pointer as `lParam`, but the move loop tracks the cursor itself: drags land exactly where dropped (checked). Kept.
+
+Visual differences left (by eye against `phase1-reference`, all states):
+
+- Tooltip and menu stay inside the 244 px window width. Phase 1's webview let them overhang the widget on the left (`connected_en_tooltip-session`, `twoOrgs_en_menu`). Same content, narrower box (Task 12 ruling).
+- Body text wraps a word earlier in places (Inter vs Segoe metrics, e.g. `expired`: "Reconnect / to keep tracking" vs "Reconnect to / keep tracking").
+- With the error foot line, the hover refresh button overlaps the end of the "retry in N s" text. Phase 1 positions it the same way (absolute bottom-right), so this is inherited, not new.
+- The fake org names come from `tools/fake-claude` ("Max plan · Personal", "Team · Acme"), not the reference fixtures; the layout matches.
+- Debug builds rasterize slowly (~90 ms per pass at 244×291), so animations stutter in debug. Release timing is Task 17's measurement.
