@@ -11,14 +11,8 @@ name = "limitrings_app"
 name = "limitrings"
 path = "src/main.rs"
 
-[features]
-spike-glow = ["dep:eframe", "eframe/glow"]
-spike-wgpu = ["dep:eframe", "eframe/wgpu_no_default_features", "dep:wgpu"]
-
 [dependencies]
 egui = { version = "0.37", default-features = false }
-eframe = { version = "0.37", default-features = false, optional = true }
-wgpu = { version = "30", default-features = false, features = ["dx12"], optional = true }
 egui-winit = { version = "0.37", default-features = false }
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
 limits-core = { path = "../crates/limits-core" }
@@ -51,14 +45,6 @@ ttf-parser = "0.25"
 image = { version = "0.25", default-features = false, features = ["png"] }
 egui_kittest = { version = "0.37", features = ["wgpu", "snapshot"] }
 tokio = { version = "1", features = ["macros", "rt", "time"] }
-
-[[example]]
-name = "spike_glow"
-required-features = ["spike-glow"]
-
-[[example]]
-name = "spike_wgpu"
-required-features = ["spike-wgpu"]
 
 [build-dependencies]
 png = "0.17"

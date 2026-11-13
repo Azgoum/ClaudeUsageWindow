@@ -32,11 +32,13 @@ until the reset. The ring color compares your actual usage to that pace:
 
 ## Install
 
-Download the installer (`.exe`) from the [Releases page](https://github.com/Azgoum/ClaudeUsageWindow/releases)
-and run it.
+Download `ClaudeLimitChecker.exe` from the [Releases page](https://github.com/Azgoum/ClaudeUsageWindow/releases)
+and run it. There is no installer: it is a single file with nothing else to install.
 
-No install wanted? The same page has a **portable zip** (`limitrings-windows-x64.zip`): unzip it anywhere
-and run `limitrings.exe`. It needs the WebView2 runtime, which Windows 10 and 11 normally already have.
+Prefer an archive? The same page has `ClaudeLimitChecker-windows-x64.zip`, which contains the same exe.
+
+**Start with Windows is off by default.** If you turn it on, move the exe somewhere permanent first (for
+example `%LOCALAPPDATA%\Programs\`), because it registers the exe where it sits.
 
 Releases are **not code-signed**: a code-signing certificate costs money every year, and this is a free
 open-source side project. Windows SmartScreen will therefore warn you ("Windows protected your PC").
@@ -55,10 +57,11 @@ then stored in **Windows Credential Manager**, never in a plain file, and are **
 
 ## Uninstall
 
-**Choose Disconnect in the menu before uninstalling.** The uninstaller (or deleting the portable folder)
-removes the app, but not the stored session in Credential Manager (entries named `limitrings`) nor the
-"Start with Windows" entry. So: turn off **Start with Windows**, choose **Disconnect**, then uninstall.
-Already uninstalled? Delete the `limitrings` entries in Credential Manager and the `limitrings` value under
+**Choose Disconnect in the menu before deleting the exe.** Deleting it removes the app, but not the stored
+session in Credential Manager (the `limitrings` entry) nor the "Start with Windows" entry. So: turn off
+**Start with Windows**, choose **Disconnect**, then delete the exe. Optionally, also delete the
+`%APPDATA%\limitrings` folder (settings) and `%LOCALAPPDATA%\limitrings` (logs).
+Already deleted the exe? Delete the `limitrings` entry in Credential Manager and the `limitrings` value under
 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` by hand.
 
 ## Heads up: undocumented endpoint, terms of service
@@ -76,17 +79,16 @@ never logged).
 
 ## Build from source
 
-Requirements: Rust (MSVC toolchain), Node 22, and `cargo install tauri-cli --version "^2" --locked`.
+Requirements: Rust (MSVC toolchain). Nothing else.
 
 ```sh
-cd ui && npm ci && cd ..
-cargo tauri build      # installer in target/release/bundle/nsis/
+cargo build --release -p limitrings    # target/release/limitrings.exe
 ```
 
-Tests: `cargo test --workspace`, and `npm test -- --run` plus `npx tsc --noEmit` in `ui/`.
+Tests: `cargo test --workspace`.
 
 For development without a real claude.ai account, run the scripted fake server
-(see [tools/fake-claude/README.md](tools/fake-claude/README.md)):
+(see [tools/fake-claude/README.md](tools/fake-claude/README.md)), which needs Node 22:
 
 ```sh
 node tools/fake-claude/server.mjs

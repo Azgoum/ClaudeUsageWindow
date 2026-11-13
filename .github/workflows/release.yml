@@ -11,37 +11,37 @@ jobs:
   release:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Check the tag matches the crate version
+        shell: pwsh
+        run: |
+          $meta = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $version = ($meta.packages | Where-Object { $_.name -eq 'limitrings' }).version
+          $tag = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($tag -ne $version) {
+            Write-Error "Tag $env:GITHUB_REF_NAME does not match limitrings version $version"
+            exit 1
+          }
 
-      - name: UI install
-        working-directory: ui
-        run: npm ci
-
-      - name: Install tauri-cli
-        run: cargo install tauri-cli --version "^2" --locked
+      - name: Build
+        run: cargo build --release -p limitrings
 
       # Releases are unsigned. To sign, add a code-signing step here (e.g. Azure Trusted
-      # Signing or signtool on the built exe/installer) before packaging the assets below.
-      - name: Build
-        run: cargo tauri build
-
-      - name: Zip the executable
+      # Signing or signtool on the built exe) before packaging the assets below.
+      - name: Package
         shell: pwsh
-        run: Compress-Archive -Path target/release/limitrings.exe -DestinationPath limitrings-windows-x64.zip
+        run: |
+          Copy-Item target/release/limitrings.exe ClaudeLimitChecker.exe
+          Compress-Archive -Path ClaudeLimitChecker.exe -DestinationPath ClaudeLimitChecker-windows-x64.zip
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           files: |
-            target/release/bundle/nsis/*.exe
-            limitrings-windows-x64.zip
+            ClaudeLimitChecker.exe
+            ClaudeLimitChecker-windows-x64.zip

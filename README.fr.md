@@ -32,12 +32,13 @@ régulier jusqu'à la réinitialisation. La couleur de l'anneau compare votre co
 
 ## Installation
 
-Téléchargez l'installateur (`.exe`) depuis la [page des versions](https://github.com/Azgoum/ClaudeUsageWindow/releases)
-puis lancez-le.
+Téléchargez `ClaudeLimitChecker.exe` depuis la [page des versions](https://github.com/Azgoum/ClaudeUsageWindow/releases)
+puis lancez-le. Il n'y a pas d'installateur : c'est un seul fichier, sans rien d'autre à installer.
 
-Vous préférez ne rien installer ? La même page propose une **version portable** (`limitrings-windows-x64.zip`) :
-décompressez-la où vous voulez et lancez `limitrings.exe`. Il faut le runtime WebView2, normalement déjà présent
-sur Windows 10 et 11.
+Vous préférez une archive ? La même page propose `ClaudeLimitChecker-windows-x64.zip`, qui contient le même exe.
+
+**Le lancement au démarrage de Windows est désactivé par défaut.** Si vous l'activez, placez d'abord l'exe à un
+endroit durable (par exemple `%LOCALAPPDATA%\Programs\`), car c'est l'emplacement où il se trouve qui est enregistré.
 
 Les versions ne sont **pas signées** : un certificat de signature de code coûte cher chaque année, et ceci est un
 projet libre et gratuit. Windows SmartScreen affichera donc un avertissement (« Windows a protégé votre PC »).
@@ -56,12 +57,13 @@ un fichier en clair, et ne sont **envoyés qu'à claude.ai**. « Se déconnecter
 
 ## Désinstallation
 
-**Choisissez « Se déconnecter » dans le menu avant de désinstaller.** Le désinstalleur (ou la suppression du
-dossier portable) retire l'application, mais pas la session enregistrée dans le Gestionnaire d'informations
-d'identification (entrées nommées `limitrings`), ni le lancement au démarrage de Windows. Donc : décochez
-**Lancer au démarrage de Windows**, choisissez **Se déconnecter**, puis désinstallez. Déjà désinstallé ?
-Supprimez à la main les entrées `limitrings` du Gestionnaire d'informations d'identification et la valeur
-`limitrings` sous `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+**Choisissez « Se déconnecter » dans le menu avant de supprimer l'exe.** Le supprimer retire l'application,
+mais pas la session enregistrée dans le Gestionnaire d'informations d'identification (l'entrée `limitrings`),
+ni le lancement au démarrage de Windows. Donc : décochez **Lancer au démarrage de Windows**, choisissez
+**Se déconnecter**, puis supprimez l'exe. Vous pouvez aussi effacer le dossier `%APPDATA%\limitrings` (réglages)
+et `%LOCALAPPDATA%\limitrings` (journaux). Exe déjà supprimé ? Supprimez à la main l'entrée `limitrings` du
+Gestionnaire d'informations d'identification et la valeur `limitrings` sous
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
 ## À savoir : point d'accès non documenté, conditions d'utilisation
 
@@ -78,17 +80,16 @@ des cookies n'y figurent jamais).
 
 ## Compiler depuis les sources
 
-Prérequis : Rust (toolchain MSVC), Node 22 et `cargo install tauri-cli --version "^2" --locked`.
+Prérequis : Rust (toolchain MSVC), rien d'autre.
 
 ```sh
-cd ui && npm ci && cd ..
-cargo tauri build      # installateur dans target/release/bundle/nsis/
+cargo build --release -p limitrings    # target/release/limitrings.exe
 ```
 
-Tests : `cargo test --workspace`, puis `npm test -- --run` et `npx tsc --noEmit` dans `ui/`.
+Tests : `cargo test --workspace`.
 
 Pour développer sans vrai compte claude.ai, lancez le faux serveur scripté
-(voir [tools/fake-claude/README.md](tools/fake-claude/README.md)) :
+(voir [tools/fake-claude/README.md](tools/fake-claude/README.md)), qui demande Node 22 :
 
 ```sh
 node tools/fake-claude/server.mjs

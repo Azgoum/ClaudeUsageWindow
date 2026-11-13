@@ -729,3 +729,22 @@ Visual differences left (by eye against `phase1-reference`, all states):
 - With the error foot line, the hover refresh button overlaps the end of the "retry in N s" text. Phase 1 positions it the same way (absolute bottom-right), so this is inherited, not new.
 - The fake org names come from `tools/fake-claude` ("Max plan · Personal", "Team · Acme"), not the reference fixtures; the layout matches.
 - Debug builds rasterize slowly (~90 ms per pass at 244×291), so animations stutter in debug. Release timing is Task 17's measurement.
+
+
+### Task 16 — Phase 1 removed, CI, release
+
+`src-tauri/`, `ui/`, `app/examples/` and the spike-only `eframe`/`wgpu` optional dependencies and features are gone; workspace members are `crates/limits-core` and `app`. `[profile.release]` is LTO, `codegen-units = 1`, `opt-level = "s"` (kept per Task 2), `panic = "abort"`, `strip`; `.cargo/config.toml` sets `+crt-static` for `x86_64-pc-windows-msvc`.
+
+`cargo build --release -p limitrings` (212 crates, 2 min 10 s clean-ish): exe **6 713 344 bytes (6.4 MB)**; `ClaudeLimitChecker-windows-x64.zip` (Compress-Archive, exe only) **3 434 497 bytes (3.3 MB)**, under the 6 MB download budget. The exe is larger than the Task 2 spike (2.74 MB) because it now carries the whole app (tokio, HTTP/TLS, SQLite/cookie reader, embedded Inter fonts, egui). Not an issue for the budget.
+
+Import table (parsed from the PE, `dumpbin` is not installed; static imports, no delay-load table):
+
+```
+kernel32.dll  bcryptprimitives.dll  api-ms-win-core-synch-l1-2-0.dll (API set, ships with Windows)
+user32.dll  ws2_32.dll  comctl32.dll  uxtheme.dll  gdi32.dll  shell32.dll  ntdll.dll
+dwmapi.dll  imm32.dll  bcrypt.dll  advapi32.dll  ole32.dll
+```
+
+System DLLs only: no `VCRUNTIME140`, no `MSVCP140`, no `api-ms-win-crt-*`, no `OPENGL32`/`d3d12`/`dxgi`. CI: `windows-latest`, fmt, clippy `-D warnings`, `cargo test --workspace` with `WGPU_BACKEND=dx12` for the kittest snapshots (WARP on the GPU-less runner); not exercised here since Actions cannot run locally. Action SHAs (looked up with `gh api`): checkout v7.0.1, rust-cache v2.9.3, action-gh-release v3.0.4, dtolnay/rust-toolchain `stable` branch tip.
+
+Local verification: `cargo fmt --all --check` clean, clippy `-D warnings` clean, `cargo test --workspace` 256 (app) + 112 (limits-core, 3 ignored) passed.
