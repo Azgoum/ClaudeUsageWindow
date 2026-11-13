@@ -707,7 +707,7 @@ Release builds, Windows 11, 1920×1080 at 100 %, Rust 1.100 (egui/eframe 0.37 ne
 
 `softbuffer` was not tried: it presents with `BitBlt`/`StretchDIBits` (no per-pixel alpha on Win32), which is why the layered path uses `UpdateLayeredWindow` from a premultiplied DIB instead.
 
-Gotcha found and fixed: winit rewrites `GWL_EXSTYLE` from its own flags on every style change (show, minimize, always-on-top...), which drops `WS_EX_LAYERED`; `UpdateLayeredWindow` then fails with error 87 and the window falls back to an opaque redirection bitmap (black corners). `platform::LayeredSurface` subclasses the window and keeps `WS_EX_LAYERED` in every `WM_STYLECHANGING`.
+Gotcha found and fixed: winit rewrites `GWL_EXSTYLE` from its own flags on every style change (show, minimize, always-on-top...), which drops `WS_EX_LAYERED`; `UpdateLayeredWindow` then fails with error 87 and the window falls back to an opaque redirection bitmap (black corners). `platform::Surface` (Windows) subclasses the window and keeps `WS_EX_LAYERED` in every `WM_STYLECHANGING`.
 
 Opt-level (layered spike, LTO + `codegen-units = 1` + `panic = "abort"` + strip): `opt-level = 3` exe 3.10 MB; `"s"` 2.74 MB exe, 3.7 MB private; `"z"` 3.40 MB exe, 3.8 MB private, both 0 % idle CPU and the same rendering. **Keep `"s"`** (`"z"` measured larger here).
 

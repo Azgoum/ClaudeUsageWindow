@@ -1,7 +1,7 @@
 //! The window host: a winit event loop driving one `egui::Context`, rendered on
-//! the CPU ([`crate::render`]) and shown through a layered window
-//! ([`crate::platform::LayeredSurface`]). Repaints only when egui asks for one
-//! (input, animation, `request_repaint_after`), so an idle widget costs no CPU.
+//! the CPU ([`crate::render`]) and shown through [`crate::platform::Surface`]
+//! (a layered window on Windows). Repaints only when egui asks for one (input,
+//! animation, `request_repaint_after`), so an idle widget costs no CPU.
 
 use std::{sync::Arc, time::Instant};
 
@@ -11,11 +11,10 @@ use winit::{
     dpi::{LogicalPosition, LogicalSize},
     event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-    raw_window_handle::{HasWindowHandle, RawWindowHandle},
     window::{Window, WindowId, WindowLevel},
 };
 
-use crate::{platform::LayeredSurface, render::SoftRenderer};
+use crate::{platform, render::SoftRenderer};
 
 /// What the host window looks like when it opens.
 pub struct WindowSpec {
@@ -50,7 +49,7 @@ struct Running {
     window: Arc<Window>,
     input: egui_winit::State,
     renderer: SoftRenderer,
-    surface: LayeredSurface,
+    surface: platform::Surface,
     next_repaint: Option<Instant>,
 }
 
@@ -70,10 +69,6 @@ impl<F: FnMut(&egui::Context)> ApplicationHandler for Host<F> {
             attrs = attrs.with_position(LogicalPosition::new(x, y));
         }
         let window = Arc::new(event_loop.create_window(attrs).expect("create window"));
-        let hwnd = match window.window_handle().expect("window handle").as_raw() {
-            RawWindowHandle::Win32(handle) => handle.hwnd.get(),
-            _ => unreachable!("the host only runs on Windows"),
-        };
         let input = egui_winit::State::new(
             self.ctx.clone(),
             ViewportId::ROOT,
@@ -86,7 +81,7 @@ impl<F: FnMut(&egui::Context)> ApplicationHandler for Host<F> {
             window: window.clone(),
             input,
             renderer: SoftRenderer::default(),
-            surface: LayeredSurface::new(hwnd),
+            surface: platform::surface_for(&window),
             next_repaint: None,
         };
         // Paint before showing so the window never flashes empty.
@@ -151,8 +146,8 @@ impl Running {
             output.textures_delta,
             ppp,
         );
-        if let Err(code) = self.surface.present() {
-            eprintln!("UpdateLayeredWindow failed: error {code}");
+        if let Err(err) = self.surface.present() {
+            eprintln!("presenting the window failed: {err}");
         }
 
         let delay = output

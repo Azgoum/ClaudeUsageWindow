@@ -1,7 +1,7 @@
 //! Renderer spike 3: winit + egui without eframe. egui's meshes are rasterized
 //! on the CPU (`limitrings_app::render`) into a premultiplied BGRA DIB and shown
 //! with `UpdateLayeredWindow` on a `WS_EX_LAYERED` window
-//! (`limitrings_app::platform::LayeredSurface`): true per-pixel alpha, no GPU.
+//! (`limitrings_app::platform::Surface`): true per-pixel alpha, no GPU.
 //! The event loop is `limitrings_app::host::run`.
 
 #[path = "spike_common/mod.rs"]
