@@ -320,13 +320,16 @@ impl Menu {
         if ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.close();
         }
+        let window = ctx.content_rect();
         let lay = |anchor: egui::Vec2| {
             let layout = Layout::new(p, entries(input.state, input.prefs));
             let window_w = widget.width();
             let x = (widget.left() + anchor.x)
                 .min(widget.left() + window_w - PAD - layout.size.x)
                 .max(widget.left() + PAD);
-            let min = pos2(x, widget.top() + anchor.y);
+            // Never flipped; shifted up to stay 6 inside the window (grown upward).
+            let y = (widget.top() + anchor.y).min(window.bottom() - PAD - layout.size.y);
+            let min = pos2(x, y);
             let room = menu_room(anchor.y, layout.size.y, widget.height());
             Shown { layout, min, room }
         };
@@ -556,6 +559,21 @@ mod tests {
         let menu = h.state().widget.debug_rects()["menu"];
         let o = h.state().out.as_ref().unwrap();
         assert_eq!(o.extra, (menu.bottom() + 6.0 - o.size.y).ceil());
+    }
+
+    #[test]
+    fn menu_shifts_up_inside_a_window_grown_upward() {
+        let mut h = open_menu("twoOrgs", Lang::En, AT);
+        let extra = h.state().out.as_ref().unwrap().extra;
+        h.state_mut().offset_y = extra;
+        h.run();
+        let window = h.ctx.content_rect();
+        let menu = h.state().widget.debug_rects()["menu"];
+        assert!(window.contains_rect(menu), "{menu:?} in {window:?}");
+        assert_eq!(menu.bottom(), window.bottom() - PAD);
+        let o = h.state().out.as_ref().unwrap();
+        assert_eq!(o.extra, extra);
+        assert_eq!(o.repaint, crate::ui::Repaint::Idle);
     }
 
     #[test]

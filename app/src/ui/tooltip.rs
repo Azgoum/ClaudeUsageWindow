@@ -179,14 +179,24 @@ impl Tip {
     }
 }
 
-/// Where the tooltip of the hit box `hit` goes in a window `window_w` wide: 16 under it,
-/// centered on it, shifted to stay 6 inside the window.
-pub fn place(hit: Rect, size: Vec2, window_w: f32) -> Pos2 {
+/// Gap above the hit box when the tooltip flips there (`sideOffset` 10 on top).
+pub const GAP_ABOVE: f32 = 10.0;
+
+/// Where the tooltip of the hit box `hit` goes in `window`: 16 under it, centered on it,
+/// shifted to stay 6 inside the window; flipped 10 above it when it would pass the window
+/// bottom (the host grew the window upward, near the screen bottom).
+pub fn place(hit: Rect, size: Vec2, window: Rect) -> Pos2 {
     let pad = super::room::PAD;
     let x = (hit.center().x - size.x / 2.0)
-        .min(window_w - pad - size.x)
-        .max(pad);
-    pos2(x, hit.bottom() + GAP)
+        .min(window.right() - pad - size.x)
+        .max(window.left() + pad);
+    let below = hit.bottom() + GAP;
+    let y = if below + size.y > window.bottom() - pad {
+        hit.top() - GAP_ABOVE - size.y
+    } else {
+        below
+    };
+    pos2(x, y)
 }
 
 #[cfg(test)]
@@ -292,6 +302,50 @@ mod tests {
         let o = h.state().out.as_ref().unwrap();
         assert_eq!(o.actions, vec![Action::StartDrag]);
         assert_eq!(o.extra, 0.0);
+    }
+
+    #[test]
+    fn tooltip_flips_above_when_the_window_grew_upward() {
+        // Near the screen bottom the host grows the window upward: the widget sits `extra`
+        // below the window top and the room is above it.
+        let mut h = hovered_ring("connected", LimitKey::Session, Lang::En);
+        let extra = h.state().out.as_ref().unwrap().extra;
+        let at = ring_center(&h, LimitKey::Session);
+        h.state_mut().offset_y = extra;
+        h.input_mut()
+            .events
+            .push(egui::Event::PointerMoved(at + egui::vec2(0.0, extra)));
+        h.run();
+        let window = h.ctx.content_rect();
+        let rects = h.state().widget.debug_rects();
+        let (tip, hit) = (rects["tip_session"], rects["ring_session"]);
+        assert!(window.contains_rect(tip), "{tip:?} in {window:?}");
+        assert_eq!(tip.bottom(), hit.top() - super::GAP_ABOVE);
+        let o = h.state().out.as_ref().unwrap();
+        assert_eq!(o.extra, extra);
+        assert_eq!(o.repaint, Repaint::After(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn a_drag_whose_release_never_came_does_not_block_tooltips() {
+        // The OS drag loop may swallow the release; egui then thinks the button is still down.
+        let mut h = render("connected", Lang::En, 1.0);
+        let input = h.input_mut();
+        input.events.push(egui::Event::PointerMoved(GLASS));
+        input.events.push(egui::Event::PointerButton {
+            pos: GLASS,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+        assert_eq!(
+            h.state().out.as_ref().unwrap().actions,
+            vec![Action::StartDrag]
+        );
+        let at = ring_center(&h, LimitKey::Session);
+        hover(&mut h, at);
+        assert!(h.state().widget.debug_rects().contains_key("tip_session"));
     }
 
     fn snap(kind: &str, key: LimitKey, lang: Lang, name: &str) {

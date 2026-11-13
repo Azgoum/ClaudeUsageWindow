@@ -210,6 +210,8 @@ impl Widget {
         });
         if drag {
             actions.push(Action::StartDrag);
+            // The OS drag loop may eat the release: forget the press now.
+            self.presses.swallow(&mut clicks);
         }
 
         // Tooltips: never while the menu is open or the button is down (a drag). A drag
@@ -220,7 +222,7 @@ impl Widget {
         } else {
             menu
         };
-        let blocked = menu.is_some() || ctx.input(|i| i.pointer.primary_down()) || drag;
+        let blocked = menu.is_some() || self.presses.is_down() || drag;
         let pointer = ctx.pointer_hover_pos();
         let mut rooms = RingRooms::default();
         let mut tips = vec![];
@@ -242,14 +244,15 @@ impl Widget {
             let tip = Tip::layout(&popups, view, input, size.x - 2.0 * room::PAD);
             let room = room::tip_room(hit.bottom() - rect.top(), tip.size.y, size.y);
             rooms = room::with_ring_room(rooms, view.key, room);
-            let min = tooltip::place(hit, tip.size, size.x);
+            let min = tooltip::place(hit, tip.size, window);
             self.note(TIP_NAMES[i], Rect::from_min_size(min, tip.size));
             tips.push((tip, min, alpha));
         }
         let extra = room::max_room(&rooms).max(menu.as_ref().map_or(0.0, |m| m.room));
 
         // The first frame of a popup may come before the window grew: draw it invisible.
-        let fits = window.height() + 0.5 >= rect.bottom() + extra;
+        // The room is below the widget, or above it when the host grew the window upward.
+        let fits = window.height() + 0.5 >= size.y + extra;
         for (tip, min, alpha) in tips {
             let mut p = popups.clone();
             p.multiply_opacity(if fits { alpha } else { 0.0 });
@@ -358,7 +361,13 @@ pub(crate) mod snapshot_tests {
         }
     }
 
-    fn input<'a>(state: &'a AppState, prefs: &'a Prefs, t: f64, focused: bool) -> FrameInput<'a> {
+    fn input<'a>(
+        state: &'a AppState,
+        prefs: &'a Prefs,
+        t: f64,
+        focused: bool,
+        offset_y: f32,
+    ) -> FrameInput<'a> {
         FrameInput {
             state,
             prefs,
@@ -366,7 +375,7 @@ pub(crate) mod snapshot_tests {
             tz: fixtures::tz(),
             t,
             reduced_motion: false,
-            offset_y: 0.0,
+            offset_y,
             focused,
         }
     }
@@ -380,6 +389,8 @@ pub(crate) mod snapshot_tests {
         pub t: f64,
         /// The window has focus.
         pub focused: bool,
+        /// Points the widget sits below the window top (window grown upward).
+        pub offset_y: f32,
     }
 
     /// Paints the backdrop and the widget, settled, into a pass of `ctx`.
@@ -388,7 +399,7 @@ pub(crate) mod snapshot_tests {
             .rect_filled(ctx.content_rect(), 0, BACKDROP);
         let out = f
             .widget
-            .show(ctx, &input(&f.state, &f.prefs, f.t, f.focused));
+            .show(ctx, &input(&f.state, &f.prefs, f.t, f.focused, f.offset_y));
         f.out = Some(out);
     }
 
@@ -400,6 +411,7 @@ pub(crate) mod snapshot_tests {
             out: None,
             t: T_SETTLED,
             focused: true,
+            offset_y: 0.0,
         }
     }
 

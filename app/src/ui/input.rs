@@ -52,6 +52,11 @@ impl PressTracker {
         clicks
     }
 
+    /// The primary button is down on a press this widget saw (and did not swallow).
+    pub fn is_down(&self) -> bool {
+        self.origin.is_some()
+    }
+
     /// Drops this frame's primary press and click: nothing else gets them, and the release
     /// that ends the press later is no click either.
     pub fn swallow(&mut self, clicks: &mut Clicks) {
