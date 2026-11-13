@@ -1,6 +1,7 @@
-//! Hover controls (port of `HoverControls.tsx`, `Flags.tsx` and `index.css` `.ctl .ib .rf .flags`):
-//! language flags top left, minimise and close top right, refresh bottom right (rings only).
-//! They fade in over 0.2 s while the pointer is in the window and out when it leaves.
+//! Hover controls (port of Phase 1 (git bcaa1bf) `ui/src/components/HoverControls.tsx`,
+//! `ui/src/components/Flags.tsx` and `ui/src/index.css` `.ctl .ib .rf .flags`): language
+//! flags top left, minimise and close top right, refresh bottom right (rings only). They
+//! fade in over 0.2 s while the pointer is in the window and out when it leaves.
 //!
 //! Group opacity: CSS fades each control as one composited layer. Stacked egui shapes
 //! faded one by one would let lower layers show through upper ones (flag stripes, icon
@@ -229,6 +230,13 @@ fn flag_image(
     raster(outer.expand(1.0), ppp, &sample)
 }
 
+/// Whether `q` is within `hw` of any segment of `paths`.
+fn icon_hit(paths: &[Vec<Pos2>], hw: f32, q: Pos2) -> bool {
+    paths
+        .iter()
+        .any(|path| path.windows(2).any(|w| seg_dist(w[0], w[1], q) <= hw))
+}
+
 /// White coverage mask of `icon` fitted in `rect`, scaled by `scale` and turned by `turns`
 /// around its center. Round caps and joins come from the distance to the path.
 fn icon_image(icon: Icon, rect: Rect, scale: f32, turns: f32, ppp: f32) -> (ColorImage, Rect) {
@@ -244,11 +252,21 @@ fn icon_image(icon: Icon, rect: Rect, scale: f32, turns: f32, ppp: f32) -> (Colo
         })
         .collect();
     let hw = ICON_STROKE * s / 2.0;
+    // The paths lie in the ring `near..=far` around the center: a sample farther than `hw`
+    // outside it misses every segment, without testing them (most of the turned box).
+    let segments = || paths.iter().flat_map(|path| path.windows(2));
+    let far = segments()
+        .flat_map(|w| [w[0].distance(c), w[1].distance(c)])
+        .fold(0.0, f32::max);
+    let near = segments()
+        .map(|w| seg_dist(w[0], w[1], c))
+        .fold(f32::INFINITY, f32::min);
     let sample = |q: Pos2| -> [f32; 4] {
-        let hit = paths
-            .iter()
-            .any(|path| path.windows(2).any(|w| seg_dist(w[0], w[1], q) <= hw));
-        if hit {
+        let r = q.distance(c);
+        if r > far + hw || r < near - hw {
+            return [0.0; 4];
+        }
+        if icon_hit(&paths, hw, q) {
             [255.0; 4]
         } else {
             [0.0; 4]
@@ -517,6 +535,49 @@ mod tests {
 
     fn name(ctl: Ctl) -> &'static str {
         ctl.name()
+    }
+
+    #[test]
+    fn icon_early_out_paints_exactly_what_the_full_test_paints() {
+        for (icon, scale, turns, ppp) in [
+            (Icon::RefreshCw, 1.0, 0.0, 1.0),
+            (Icon::RefreshCw, 0.9, 0.37, 1.25),
+            (Icon::RefreshCw, 1.0, 0.8, 2.0),
+            (Icon::X, 1.1, 0.0, 1.5),
+            (Icon::Minus, 1.0, 0.0, 1.0),
+        ] {
+            let rect = Rect::from_center_size(pos2(40.3, 70.6), Vec2::splat(ICON));
+            let (fast, quad) = icon_image(icon, rect, scale, turns, ppp);
+            // The same box, every sample against every segment.
+            let s = ICON / 24.0 * scale;
+            let rot = egui::emath::Rot2::from_angle(std::f32::consts::TAU * turns);
+            let c = rect.center();
+            let paths: Vec<Vec<Pos2>> = draw::icon_paths(icon)
+                .into_iter()
+                .map(|p| {
+                    p.into_iter()
+                        .map(|q| c + rot * ((q - pos2(12.0, 12.0)) * s))
+                        .collect()
+                })
+                .collect();
+            let hw = ICON_STROKE * s / 2.0;
+            let reach = 12.0 * s * std::f32::consts::SQRT_2 + hw;
+            let bounds = Rect::from_center_size(c, Vec2::splat(2.0 * reach));
+            let (full, full_quad) = raster(bounds, ppp, &|q| {
+                if icon_hit(&paths, hw, q) {
+                    [255.0; 4]
+                } else {
+                    [0.0; 4]
+                }
+            });
+            assert_eq!(quad, full_quad);
+            assert_eq!(fast.size, full.size);
+            assert!(fast.pixels == full.pixels, "{icon:?} {turns} at {ppp}x");
+            assert!(
+                full.pixels.iter().any(|p| p.a() == 255),
+                "{icon:?} drew something"
+            );
+        }
     }
 
     type H = egui_kittest::Harness<'static, crate::ui::widget::snapshot_tests::Fixture>;

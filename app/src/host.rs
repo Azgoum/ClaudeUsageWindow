@@ -36,7 +36,7 @@ pub const MOVE_DEBOUNCE: Duration = Duration::from_millis(500);
 /// outright: Quit must never leave an invisible process behind.
 const EXIT_FALLBACK: Duration = Duration::from_secs(3);
 
-/// `v` points to whole pixels, rounding up; float noise (145.6 Ã— 1.25 =
+/// `v` points to whole pixels, rounding up; float noise (145.6 × 1.25 =
 /// 182.00001) is rounded away first.
 fn px(v: f32, ppp: f32) -> i32 {
     ((v.max(0.0) * ppp * 1000.0).round() / 1000.0).ceil() as i32
@@ -83,6 +83,13 @@ impl MoveSaver {
             }
             _ => None,
         }
+    }
+
+    /// The pending position at once, debounce or not (the app is quitting); `None`
+    /// when nothing is pending or it is where it was last saved.
+    pub fn flush(&mut self) -> Option<(i32, i32)> {
+        let (pos, _) = self.pending.take()?;
+        (self.saved.replace(pos) != Some(pos)).then_some(pos)
     }
 
     /// When the pending save is due.
@@ -170,9 +177,16 @@ const PASSES: usize = 3;
 /// loop.
 const MAX_AGAIN: u32 = 3;
 
-/// How long until the next frame: the sooner of egui's and the widget's asks,
-/// or at once after a frame that ran out of passes (the `again_streak`-th in a
-/// row), up to [`MAX_AGAIN`] times in a row.
+/// Shortest time between the starts of two frames nobody asked for by input:
+/// animations run at about 60 fps (Phase 1 was vsync-capped at 60) instead of
+/// back to back, which kept a core busy (each frame rasterizes for ~9 ms).
+pub const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+
+/// How long after a frame's start the next one runs: the sooner of egui's and
+/// the widget's asks, paced to at least [`FRAME_INTERVAL`]; or at once after a
+/// frame that ran out of passes (the `again_streak`-th in a row), up to
+/// [`MAX_AGAIN`] times in a row. Input still repaints at once (the event loop
+/// asks for those redraws directly).
 fn repaint_delay(egui: Duration, widget: Repaint, again_streak: u32) -> Duration {
     let widget = match widget {
         Repaint::Idle => Duration::MAX,
@@ -182,7 +196,7 @@ fn repaint_delay(egui: Duration, widget: Repaint, again_streak: u32) -> Duration
     if (1..=MAX_AGAIN).contains(&again_streak) {
         Duration::ZERO
     } else {
-        egui.min(widget)
+        egui.min(widget).max(FRAME_INTERVAL)
     }
 }
 
@@ -243,7 +257,24 @@ fn quit(event_loop: &ActiveEventLoop, from: &'static str) {
     });
 }
 
+fn save_position(settings: &SettingsStore, room: &PopupRoom, pos: (i32, i32)) {
+    let pos = persisted_position(pos, room);
+    tracing::debug!(?pos, "saving the window position");
+    if let Err(e) = settings.update(|s| s.position = Some(pos)) {
+        tracing::warn!("cannot save settings: {e}");
+    }
+}
+
 impl ApplicationHandler<Wake> for Host {
+    /// A Quit right after a drag would otherwise lose the new position to the debounce.
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(running) = self.running.as_mut() {
+            if let Some(pos) = running.saver.flush() {
+                save_position(&self.shell.settings, &running.room, pos);
+            }
+        }
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.running.is_some() {
             return;
@@ -347,11 +378,7 @@ impl ApplicationHandler<Wake> for Host {
         };
         let now = Instant::now();
         if let Some(pos) = running.saver.due(now) {
-            let pos = persisted_position(pos, &running.room);
-            tracing::debug!(?pos, "saving the window position");
-            if let Err(e) = self.shell.settings.update(|s| s.position = Some(pos)) {
-                tracing::warn!("cannot save settings: {e}");
-            }
+            save_position(&self.shell.settings, &running.room, pos);
         }
         if running.next_repaint.is_some_and(|at| at <= now) {
             running.next_repaint = None;
@@ -398,6 +425,7 @@ impl Running {
     /// for the room.
     fn frame(&mut self, host: &mut Host) -> After {
         let mut after = After::default();
+        let started = Instant::now();
         if self.hwnd.is_some_and(platform::is_minimized) {
             return after; // nothing to show; restoring sends the events that repaint
         }
@@ -500,7 +528,8 @@ impl Running {
                 tracing::debug!("the window still does not fit after {MAX_AGAIN} frames");
             }
             let delay = repaint_delay(egui_delay, shown.repaint, self.again_streak);
-            self.next_repaint = Instant::now().checked_add(delay);
+            // Paced from this frame's start, so the raster time is part of the interval.
+            self.next_repaint = started.checked_add(delay);
             break;
         }
         after
@@ -617,7 +646,27 @@ mod tests {
             repaint_delay(Duration::MAX, Repaint::After(second), 0),
             second
         );
-        assert_eq!(repaint_delay(second, Repaint::Now, 0), Duration::ZERO);
+    }
+
+    #[test]
+    fn animation_frames_are_paced_to_about_60_fps() {
+        assert!(FRAME_INTERVAL >= Duration::from_millis(16));
+        let second = Duration::from_secs(1);
+        assert_eq!(repaint_delay(second, Repaint::Now, 0), FRAME_INTERVAL);
+        assert_eq!(
+            repaint_delay(Duration::ZERO, Repaint::Idle, 0),
+            FRAME_INTERVAL,
+            "egui's own animations too"
+        );
+        assert_eq!(
+            repaint_delay(Duration::MAX, Repaint::After(Duration::from_millis(5)), 0),
+            FRAME_INTERVAL
+        );
+        // The spinner's slower pace is kept.
+        let spin = Duration::from_millis(33);
+        assert_eq!(repaint_delay(Duration::MAX, Repaint::After(spin), 0), spin);
+        // An unsettled fit still repaints at once.
+        assert_eq!(repaint_delay(second, Repaint::Now, 1), Duration::ZERO);
     }
 
     #[test]
@@ -666,6 +715,23 @@ mod tests {
         s.observe((300, 208), ms(3100), false, true);
         assert_eq!(s.due(ms(3499)), None);
         assert_eq!(s.due(ms(3500)), Some((300, 300)));
+    }
+
+    #[test]
+    fn move_saver_flushes_a_pending_save_on_quit() {
+        let t0 = Instant::now();
+        let ms = |n| t0 + Duration::from_millis(n);
+        let mut s = MoveSaver::default();
+        s.observe((10, 10), ms(0), false, false);
+        assert_eq!(s.flush(), None, "nothing moved");
+        s.observe((40, 50), ms(100), false, false);
+        assert_eq!(s.flush(), Some((40, 50)), "before the 500 ms debounce");
+        assert_eq!(s.flush(), None, "once");
+        assert_eq!(s.due(ms(1000)), None, "not saved again later");
+        // Dragged away and back before quitting: nothing to save.
+        s.observe((90, 90), ms(1100), false, false);
+        s.observe((40, 50), ms(1200), false, false);
+        assert_eq!(s.flush(), None);
     }
 
     #[test]

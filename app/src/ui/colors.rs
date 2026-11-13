@@ -1,4 +1,5 @@
-//! Palette (port of `ui/src/lib/colors.ts` plus every color the widget tasks name).
+//! Palette (port of Phase 1 (git bcaa1bf) `ui/src/lib/colors.ts` plus every color the
+//! widget tasks name).
 
 use egui::Color32;
 use limits_core::Pace;
@@ -87,7 +88,7 @@ pub const WARN_BORDER: Color32 = rgba(251, 113, 133, 140);
 pub const WARN_GLOW: Color32 = rgba(251, 113, 133, 56);
 /// Waiting spinner ring `rgba(255,255,255,.2)` (its head is white).
 pub const SPIN_TRACK: Color32 = rgba(255, 255, 255, 51);
-/// Flags (`ui/src/components/Flags.tsx`).
+/// Flags (Phase 1 `ui/src/components/Flags.tsx`).
 pub const FR_BLUE: Color32 = rgb(0x00, 0x55, 0xa4);
 pub const FR_RED: Color32 = rgb(0xef, 0x41, 0x35);
 pub const UK_BLUE: Color32 = rgb(0x01, 0x21, 0x69);

@@ -20,9 +20,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 url = "2"
 anyhow = "1"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "std", "tracing-log"] }
 file-rotate = "0.7"
-serde = { version = "1", features = ["derive"] }
 chrono = "0.4"
 sys-locale = "0.3"
 

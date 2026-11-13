@@ -1,4 +1,5 @@
-//! Popup room (port of `ui/src/lib/room.ts`): extra window height an open popup needs.
+//! Popup room (port of Phase 1 (git bcaa1bf) `ui/src/lib/room.ts`): extra window height an
+//! open popup needs.
 
 use limits_core::LimitKey;
 

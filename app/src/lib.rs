@@ -27,6 +27,7 @@ pub(crate) const AUTOSTART_NAME: &str = "limitrings";
 /// this one. Returns when the window closes.
 pub fn run() {
     let log_dir = logging::init();
+    logging::install_panic_hook();
     tracing::info!(version = env!("CARGO_PKG_VERSION"), ?log_dir, "starting");
     let dev = shell::DevEnv::current();
     if dev != shell::DevEnv::default() {
@@ -56,13 +57,14 @@ pub fn run() {
         }
     }
     let manage_autostart = shell::manages_autostart(cfg!(debug_assertions), &dev);
-    if manage_autostart && settings.start_with_windows {
-        // On every start, so a moved exe is registered where it now is.
+    if manage_autostart {
+        // On every start, so a moved exe is registered where it now is and a stale value
+        // goes when the setting is off.
         let synced = std::env::current_exe().and_then(|exe| {
-            platform::autostart::sync(
+            shell::sync_autostart_at_start(
                 &platform::autostart::RunKey::user(),
-                AUTOSTART_NAME,
-                true,
+                manage_autostart,
+                settings.start_with_windows,
                 &exe,
             )
         });

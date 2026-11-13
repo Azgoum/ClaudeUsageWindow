@@ -1,4 +1,4 @@
-//! Copy (port of `ui/src/lib/i18n.ts`, EN and FR verbatim).
+//! Copy (port of Phase 1 (git bcaa1bf) `ui/src/lib/i18n.ts`, EN and FR verbatim).
 
 use super::Lang;
 

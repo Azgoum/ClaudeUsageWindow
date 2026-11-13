@@ -1,4 +1,5 @@
-//! Ring tooltip (port of `RingTooltip.tsx` and `index.css` `.tip`): a dark card 16 under the
+//! Ring tooltip (port of Phase 1 (git bcaa1bf)
+//! `ui/src/components/RingTooltip.tsx` and `ui/src/index.css` `.tip`): a dark card 16 under the
 //! hovered ring column with the plan, the "updated" age and the ring's usage, pace and reset.
 //!
 //! `.tip { font: 11px/1.5; padding: 7px 10px; border: 1px; border-radius: 9px;

@@ -1,4 +1,4 @@
-//! Time and duration formatting (port of `ui/src/lib/format.ts`).
+//! Time and duration formatting (port of Phase 1 (git bcaa1bf) `ui/src/lib/format.ts`).
 
 use chrono::{DateTime, Datelike, FixedOffset, TimeZone, Timelike, Utc};
 use limits_core::LimitKey;

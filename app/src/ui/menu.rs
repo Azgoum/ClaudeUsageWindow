@@ -1,4 +1,4 @@
-//! Context-menu model (port of `ui/src/lib/menu.ts`).
+//! Context-menu model (port of Phase 1 (git bcaa1bf) `ui/src/lib/menu.ts`).
 
 use limits_core::Conn;
 

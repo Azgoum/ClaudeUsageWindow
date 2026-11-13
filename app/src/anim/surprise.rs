@@ -1,5 +1,5 @@
-//! Surprise-reset timeline, gold glow and sparks (port of `ui/src/anim/surprise.ts`,
-//! `components/Sparks.tsx`).
+//! Surprise-reset timeline, gold glow and sparks (port of Phase 1 (git bcaa1bf)
+//! `ui/src/anim/surprise.ts` and `ui/src/components/Sparks.tsx`).
 
 use super::easing::{Ease, EASE_CSS, EASE_DEFAULT};
 use super::planned::{delayed, RingFrame};

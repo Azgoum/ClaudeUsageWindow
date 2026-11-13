@@ -302,6 +302,11 @@ pub fn single_instance(name: &str) -> Option<InstanceGuard> {
     // SAFETY: `name` is NUL-terminated and outlives the call.
     let handle = unsafe { CreateMutexW(ptr::null(), 0, name.as_ptr()) };
     if handle.is_null() {
+        // Not "another instance runs": the lock itself failed (logged apart to tell them apart).
+        tracing::error!(
+            "cannot create the single-instance mutex: {}",
+            std::io::Error::last_os_error()
+        );
         return None;
     }
     // SAFETY: reads the calling thread's last error right after the call.

@@ -1,4 +1,5 @@
-//! Ring entrance and refresh-button press (port of `Ring.tsx` entrance, `HoverControls.tsx`).
+//! Ring entrance and refresh-button press (port of Phase 1 (git bcaa1bf)
+//! `ui/src/components/Ring.tsx` entrance and `ui/src/components/HoverControls.tsx`).
 
 use super::easing::{spring, EASE_RING};
 use super::track::Track;

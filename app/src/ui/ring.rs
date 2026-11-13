@@ -1,4 +1,4 @@
-//! Ring geometry, colors and tooltip text (port of `ui/src/lib/ring.ts`).
+//! Ring geometry, colors and tooltip text (port of Phase 1 (git bcaa1bf) `ui/src/lib/ring.ts`).
 
 use chrono::{DateTime, FixedOffset, Utc};
 use egui::Color32;

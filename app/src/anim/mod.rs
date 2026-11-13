@@ -1,5 +1,8 @@
 //! Animation math: easing, tweens, keyframe tracks, ring locks, the reset pill text and the
 //! reset, entrance and button timelines.
+//!
+//! Ported from Phase 1 (git `bcaa1bf`): the `*.ts`/`*.tsx` files these modules name are in
+//! that commit's `ui/src/`.
 
 pub mod easing;
 pub mod entrance;

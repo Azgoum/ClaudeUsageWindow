@@ -9,6 +9,8 @@ opt-level = "s"
 panic = "abort"
 strip = true
 
+# Local measurement only: enables the dev switches (LIMITRINGS_*) in an optimized build.
+# Never distribute.
 [profile.measure]
 inherits = "release"
 debug-assertions = true

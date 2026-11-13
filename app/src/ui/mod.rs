@@ -1,4 +1,8 @@
 //! Widget UI: pure logic (text, formatting, colors, geometry, fixtures) and shared interfaces.
+//!
+//! Ported from Phase 1, the Tauri/React widget removed from the tree after git `bcaa1bf`: the
+//! file names (`*.tsx`, `*.ts`) and quoted CSS rules (`.wd …`, `.tauri .wd …`) in these
+//! modules refer to that commit's `ui/src/` (`ui/src/index.css` for the CSS).
 
 pub mod colors;
 pub mod connect;

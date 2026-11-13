@@ -1,4 +1,5 @@
-//! The surprise reset's gold glow and sparks (port of `.tauri .wd .glow`, `Sparks.tsx`).
+//! The surprise reset's gold glow and sparks (port of Phase 1 (git bcaa1bf)
+//! `ui/src/index.css` `.tauri .wd .glow` and `ui/src/components/Sparks.tsx`).
 //!
 //! Both stay on the glass (rule R13): the glow follows the rounded border on the inside, and a
 //! spark fades out as it crosses the rounded edge (egui clips to plain rects only).

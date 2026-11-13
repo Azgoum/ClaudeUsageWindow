@@ -1,4 +1,5 @@
-//! Right-click menu (port of `WidgetMenu.tsx` and `index.css` `.menu`): opens at the cursor,
+//! Right-click menu (port of Phase 1 (git bcaa1bf)
+//! `ui/src/components/WidgetMenu.tsx` and `ui/src/index.css` `.menu`): opens at the cursor,
 //! closes after any item, on Escape, on a press outside it and when the window loses focus.
 //!
 //! `.menu { min-width: 200px; padding: 5px; border-radius: 10px; font: 12px Inter }` (border

@@ -1,4 +1,5 @@
-//! Reset animations' state (port of `Widget.tsx:127-204`): batches of reset events, ring locks,
+//! Reset animations' state (port of Phase 1 (git bcaa1bf)
+//! `ui/src/components/Widget.tsx:127-204`): batches of reset events, ring locks,
 //! the held views, the pill, the gold glow and the sparks.
 //!
 //! Everything is a function of the animation clock `t`: a batch starts at the frame that sees

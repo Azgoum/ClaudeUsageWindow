@@ -1,5 +1,5 @@
-//! Planned-reset and reduced-motion timelines (port of `ui/src/anim/planned.ts`) and the
-//! shared `RingFrame`.
+//! Planned-reset and reduced-motion timelines (port of Phase 1 (git bcaa1bf)
+//! `ui/src/anim/planned.ts`) and the shared `RingFrame`.
 
 use super::easing::{Ease, EASE_CSS, EASE_DEFAULT, EASE_IN_OUT, EASE_OUT};
 use super::track::Track;

@@ -1,6 +1,7 @@
-//! The reset pill (port of `Pill.tsx` and `.wd .chip`): one line, centered 2 px below the
-//! widget's padding-box top, fully rounded; text too wide for the widget shrinks instead of
-//! wrapping (`pill_font_size`).
+//! The reset pill (port of Phase 1 (git bcaa1bf)
+//! `ui/src/components/Pill.tsx` and `ui/src/index.css` `.wd .chip`): one line, centered
+//! 2 px below the widget's padding-box top, fully rounded; text too wide for the widget
+//! shrinks instead of wrapping (`pill_font_size`).
 
 use egui::{pos2, vec2, Color32, CornerRadius, Painter, Rect, Stroke, StrokeKind};
 
@@ -16,7 +17,7 @@ const PAD_X: f32 = 8.0;
 const PAD_Y: f32 = 3.0;
 /// Padding + border, which do not shrink with the font.
 const CHROME: f32 = 2.0 * (PAD_X + BORDER);
-/// `Pill.tsx` `SIDE_MARGIN`: room left on each side inside the widget.
+/// Phase 1 `Pill.tsx` `SIDE_MARGIN`: room left on each side inside the widget.
 const SIDE_MARGIN: f32 = 4.0;
 /// `.tauri .wd .chip.gold { box-shadow: 0 0 12px rgba(250,204,21,.3) }`.
 const GOLD_GLOW_BLUR: f32 = 12.0;

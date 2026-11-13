@@ -1,7 +1,8 @@
 //! The widget: glass box, rings view (connected) and the connect panels (`connect.rs`).
 //!
-//! Layout in CSS px = egui points (`ui/src/index.css` `.wd`): 1 px border; rings row padding
-//! 24 top, 14 sides, 22 bottom, two 104 wide columns 6 apart → box 244 wide.
+//! Layout in CSS px = egui points (Phase 1 (git bcaa1bf) `ui/src/index.css` `.wd`): 1 px
+//! border; rings row padding 24 top, 14 sides, 22 bottom, two 104 wide columns 6 apart →
+//! box 244 wide.
 
 #[cfg(test)]
 use std::collections::BTreeMap;
@@ -29,17 +30,25 @@ use crate::anim::RingFrame;
 /// How often a shown countdown (error retry) or an open tooltip ("updated X ago") ticks.
 const TICK: Duration = Duration::from_secs(1);
 
-/// When the host must paint again without input: at once while something moves (animations,
-/// transitions, the Waiting spinner, a popup's first frame), each second while a countdown or
-/// a tooltip shows, else only on input or state change.
+/// Frame interval of the Waiting spinner alone: 30 fps. A 12 pt spinner turning once per
+/// 0.8 s moves its head about 1.3 pt a frame at that rate, which still reads as smooth, and
+/// the login can last 10 minutes (half the raster work of 60 fps).
+pub const SPIN_FRAME: Duration = Duration::from_millis(33);
+
+/// When the host must paint again without input: as soon as it may (the host paces it to
+/// about 60 fps) while something moves (animations, transitions, a popup's first frame),
+/// at 30 fps for the Waiting spinner alone, each second while a countdown or a tooltip
+/// shows, else only on input or state change.
 pub fn repaint_policy(
     animating: bool,
     spinner: bool,
     countdown: bool,
     tooltip_open: bool,
 ) -> Repaint {
-    if animating || spinner {
+    if animating {
         Repaint::Now
+    } else if spinner {
+        Repaint::After(SPIN_FRAME)
     } else if countdown || tooltip_open {
         Repaint::After(TICK)
     } else {
@@ -861,7 +870,7 @@ pub(crate) mod snapshot_tests {
 
     #[test]
     fn waiting_repaints_continuously_others_idle() {
-        assert_eq!(show("waiting").repaint, Repaint::Now);
+        assert_eq!(show("waiting").repaint, Repaint::After(SPIN_FRAME));
         assert_eq!(show("disconnected").repaint, Repaint::Idle);
     }
 
@@ -1030,7 +1039,11 @@ pub(crate) mod snapshot_tests {
             Repaint::After(Duration::from_secs(1))
         );
         assert_eq!(repaint_policy(true, false, true, false), Repaint::Now);
-        assert_eq!(repaint_policy(false, true, true, true), Repaint::Now);
+        assert_eq!(
+            repaint_policy(false, true, true, true),
+            Repaint::After(SPIN_FRAME)
+        );
+        assert_eq!(repaint_policy(true, true, false, false), Repaint::Now);
     }
 
     #[test]

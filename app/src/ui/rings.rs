@@ -1,4 +1,5 @@
-//! One ring column of the rings view (port of `Ring.tsx` and `.wd .rg`): the 64×64 ring,
+//! One ring column of the rings view (port of Phase 1 (git bcaa1bf)
+//! `ui/src/components/Ring.tsx` and `ui/src/index.css` `.wd .rg`): the 64×64 ring,
 //! its name and its reset line. Live values ease like Phase 1's CSS transitions; a
 //! `RingFrame` (reset animations, Task 13) overrides them while it plays.
 

@@ -1,4 +1,4 @@
-//! Test fixtures: port of the Phase 1 `mockBridge.ts` scenarios and resets.
+//! Test fixtures: port of Phase 1 (git bcaa1bf) `ui/src/lib/mockBridge.ts` scenarios and resets.
 //!
 //! Orgs are `Jane's Organization` and `Acme Studio`; no real account data, no email.
 //! "Next Friday 23:59" is computed in CET (`tz()`, UTC+1), the zone snapshot tests render with.

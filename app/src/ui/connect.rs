@@ -1,4 +1,5 @@
-//! The panels of every non-ring state (port of `ConnectPanel.tsx` and `.wd .st`): connect,
+//! The panels of every non-ring state (port of Phase 1 (git bcaa1bf)
+//! `ui/src/components/ConnectPanel.tsx` and `ui/src/index.css` `.wd .st`): connect,
 //! waiting, Firefox needed, session expired, and the lone error line of a connected widget
 //! that has no rings yet.
 //!

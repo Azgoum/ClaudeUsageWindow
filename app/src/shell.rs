@@ -57,11 +57,26 @@ pub struct DevEnv {
     pub autostart: bool,
 }
 
-/// Only release builds touch the logon Run value: a debug exe loads the dev server URL, so
-/// registering it would open a broken window at every logon (and replace an installed
-/// release's entry). A debug run opts in with `LIMITRINGS_DEV_AUTOSTART=1`, never when isolated.
+/// Only release builds touch the logon Run value: a debug exe must never register itself at
+/// logon (it would start a dev build at every logon and replace an installed release's
+/// entry). A debug run opts in with `LIMITRINGS_DEV_AUTOSTART=1`, never when isolated.
 pub fn manages_autostart(debug: bool, dev: &DevEnv) -> bool {
     !debug || (dev.autostart && !dev.fake_session)
+}
+
+/// Startup sync of the Run value with the setting, when this exe manages it: registered
+/// where the exe now is when on (a moved exe), removed when off (a stale value left by a
+/// crash or an older install). Untouched otherwise.
+pub fn sync_autostart_at_start(
+    key: &crate::platform::autostart::RunKey,
+    manage: bool,
+    on: bool,
+    exe: &Path,
+) -> std::io::Result<()> {
+    if !manage {
+        return Ok(());
+    }
+    crate::platform::autostart::sync(key, crate::AUTOSTART_NAME, on, exe)
 }
 
 impl DevEnv {
@@ -261,6 +276,32 @@ mod tests {
             !manages_autostart(true, &isolated),
             "isolated dev runs never"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn startup_sync_removes_a_stale_value_only_when_managed() {
+        use crate::platform::autostart::RunKey;
+        let key = RunKey {
+            subkey: format!(r"Software\limitrings-tests\startup-{}", std::process::id()),
+        };
+        let stale = r#""C:\old\limitrings.exe""#;
+        key.set(crate::AUTOSTART_NAME, stale).unwrap();
+        let exe = Path::new(r"C:\new\limitrings.exe");
+        sync_autostart_at_start(&key, false, false, exe).unwrap();
+        let unmanaged = key.get(crate::AUTOSTART_NAME);
+        sync_autostart_at_start(&key, true, false, exe).unwrap();
+        let removed = key.get(crate::AUTOSTART_NAME);
+        sync_autostart_at_start(&key, true, true, exe).unwrap();
+        let registered = key.get(crate::AUTOSTART_NAME);
+        key.delete_subkey();
+        assert_eq!(
+            unmanaged.as_deref(),
+            Some(stale),
+            "a debug run never touches it"
+        );
+        assert_eq!(removed, None, "setting off: the stale value goes");
+        assert_eq!(registered.as_deref(), Some(r#""C:\new\limitrings.exe""#));
     }
 
     #[test]
