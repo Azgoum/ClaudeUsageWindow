@@ -11,6 +11,7 @@ use egui::{pos2, vec2, Color32, CursorIcon, FontId, Galley, Painter, Rect, Strok
 use limits_core::{Command, Conn};
 
 use super::i18n::t;
+use super::input::Clicks;
 use super::ring::err_line;
 use super::rings::{baseline, line_galley_in};
 use super::{colors, draw, fonts, Action, FrameInput};
@@ -174,12 +175,12 @@ impl Panel {
         p: &Painter,
         rect: Rect,
         input: &FrameInput,
+        clicks: &Clicks,
         note: &mut dyn FnMut(&'static str, Rect),
     ) -> Painted {
         let left = rect.left() + BORDER + PAD_SIDE;
         let mut y = rect.top() + BORDER + PAD_TOP;
         let pointer = ctx.pointer_hover_pos();
-        let released = ctx.input(|i| i.pointer.primary_released());
         let mut actions = vec![];
         let mut nodrag = vec![];
         let mut hit = |r: Rect, action: &Action| -> bool {
@@ -187,9 +188,9 @@ impl Panel {
             let hover = pointer.is_some_and(|q| r.contains(q));
             if hover {
                 ctx.set_cursor_icon(CursorIcon::PointingHand);
-                if released {
-                    actions.push(action.clone());
-                }
+            }
+            if clicks.clicked(r) {
+                actions.push(action.clone());
             }
             hover
         };

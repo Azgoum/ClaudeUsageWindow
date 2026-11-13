@@ -11,12 +11,13 @@
 
 use egui::epaint::Mesh;
 use egui::{
-    pos2, vec2, Color32, ColorImage, CornerRadius, CursorIcon, Event, Id, Painter, PointerButton,
-    Pos2, Rect, Shape, TextureHandle, TextureId, TextureOptions, Vec2,
+    pos2, vec2, Color32, ColorImage, CornerRadius, CursorIcon, Id, Painter, Pos2, Rect, Shape,
+    TextureHandle, TextureId, TextureOptions, Vec2,
 };
 use limits_core::Command;
 
 use super::draw::{self, Icon, FLAG_RADIUS};
+use super::input::Clicks;
 use super::{colors, Action, FrameInput, Lang};
 use crate::anim::easing::EASE_CSS;
 use crate::anim::{refresh_press, REFRESH_END, REFRESH_SEND_AT};
@@ -114,7 +115,7 @@ pub struct Controls {
 }
 
 /// CSS `ease`, exact at both ends so a finished transition reads as settled.
-fn ease_css(t: f32) -> f32 {
+pub(super) fn ease_css(t: f32) -> f32 {
     if t <= 0.0 {
         0.0
     } else if t >= 1.0 {
@@ -269,22 +270,6 @@ fn icon_image(icon: Icon, rect: Rect, scale: f32, turns: f32, ppp: f32) -> (Colo
     )
 }
 
-/// Whether this frame has a release of the primary button.
-fn primary_released(ctx: &egui::Context) -> bool {
-    ctx.input(|i| {
-        i.events.iter().any(|e| {
-            matches!(
-                e,
-                Event::PointerButton {
-                    button: PointerButton::Primary,
-                    pressed: false,
-                    ..
-                }
-            )
-        })
-    })
-}
-
 impl Controls {
     /// The texture of `slot` for `key`, rasterized again only when `key` changes.
     fn texture(
@@ -323,6 +308,7 @@ impl Controls {
 
     /// Paints the controls over the widget box `rect`, handles their clicks and sends a
     /// pending refresh. `note` records the controls' rects by name.
+    #[expect(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
         ctx: &egui::Context,
@@ -330,10 +316,10 @@ impl Controls {
         rect: Rect,
         input: &FrameInput,
         show_refresh: bool,
+        clicks: &Clicks,
         note: &mut dyn FnMut(&'static str, Rect),
     ) -> ControlsOut {
         let pointer = ctx.pointer_hover_pos();
-        let released = primary_released(ctx);
         let hovers = |r: Rect| pointer.is_some_and(|q| r.contains(q));
         let mut actions = vec![];
         let mut nodrag = vec![];
@@ -363,9 +349,9 @@ impl Controls {
             let hover = hovers(r);
             if hover {
                 ctx.set_cursor_icon(CursorIcon::PointingHand);
-                if released && !active {
-                    actions.push(Action::SetLang(flag));
-                }
+            }
+            if clicks.clicked(r) && !active {
+                actions.push(Action::SetLang(flag));
             }
             let hk = animate(Id::unique(("limitrings.flag.hover", i)), hover, FLAG_ANIM);
             let ak = animate(Id::unique(("limitrings.flag.on", i)), active, FLAG_ANIM);
@@ -389,18 +375,18 @@ impl Controls {
             let hover = hovers(r);
             if hover {
                 ctx.set_cursor_icon(CursorIcon::PointingHand);
-                if released {
-                    match ctl {
-                        Ctl::Minimize => actions.push(Action::Minimize),
-                        Ctl::Close => actions.push(Action::Quit),
-                        Ctl::Refresh => {
-                            let busy = self
-                                .refresh_at
-                                .is_some_and(|at| (t - at) * 1000.0 < REFRESH_END);
-                            if !busy {
-                                self.refresh_at = Some(t);
-                                self.refresh_sent = false;
-                            }
+            }
+            if clicks.clicked(r) {
+                match ctl {
+                    Ctl::Minimize => actions.push(Action::Minimize),
+                    Ctl::Close => actions.push(Action::Quit),
+                    Ctl::Refresh => {
+                        let busy = self
+                            .refresh_at
+                            .is_some_and(|at| (t - at) * 1000.0 < REFRESH_END);
+                        if !busy {
+                            self.refresh_at = Some(t);
+                            self.refresh_sent = false;
                         }
                     }
                 }
@@ -595,6 +581,45 @@ mod tests {
     fn right_press_at(kind: &str, at: Pos2) -> Vec<Action> {
         let mut h = render(kind, Lang::En, 1.0);
         press(&mut h, at, egui::PointerButton::Secondary)
+    }
+
+    /// Pushes one primary button event at `at` (pointer moved there first) and steps a frame.
+    fn button_event(h: &mut H, at: Pos2, pressed: bool) -> Vec<Action> {
+        let input = h.input_mut();
+        input.events.push(egui::Event::PointerMoved(at));
+        input.events.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+        h.state().out.as_ref().expect("shown").actions.clone()
+    }
+
+    /// DOM click semantics: press on minimise, release on close → nothing at all.
+    #[test]
+    fn press_and_release_on_different_controls_does_nothing() {
+        let mut h = hovered("connected", Lang::En);
+        let rects = h.state().widget.debug_rects();
+        let (min, close) = (rects["ctl_minimize"].center(), rects["ctl_close"].center());
+        assert!(button_event(&mut h, min, true).is_empty());
+        assert!(button_event(&mut h, close, false).is_empty());
+        // A whole click on close still quits.
+        assert!(button_event(&mut h, close, true).is_empty());
+        assert_eq!(button_event(&mut h, close, false), vec![Action::Quit]);
+    }
+
+    #[test]
+    fn panel_button_needs_press_and_release_on_it() {
+        let mut h = render("disconnected", Lang::En, 1.0);
+        let button = h.state().widget.debug_rects()["connect_button"];
+        // Pressed on the glass (that starts a drag), released on the button: no click.
+        assert_eq!(
+            button_event(&mut h, pos2(5.0, 30.0), true),
+            vec![Action::StartDrag]
+        );
+        assert!(button_event(&mut h, button.center(), false).is_empty());
     }
 
     #[test]

@@ -7,6 +7,7 @@ pub mod draw;
 pub mod fonts;
 pub mod format;
 pub mod i18n;
+pub mod input;
 pub mod menu;
 pub mod ring;
 pub mod rings;

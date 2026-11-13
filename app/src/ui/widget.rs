@@ -11,6 +11,7 @@ use limits_core::{Conn, LimitKey, RingView};
 
 use super::connect::{Panel, PANEL_W};
 use super::controls::Controls;
+use super::input::PressTracker;
 use super::ring::{err_line, is_near_limit};
 use super::rings::{self, Column, RingTweens, COLUMN_H, COLUMN_W, LINE_HEIGHT};
 use super::{colors, draw, fonts, Action, FrameInput, FrameOutput, Repaint};
@@ -43,24 +44,10 @@ fn gray_half(c: Color32) -> Color32 {
     Color32::from_rgba_unmultiplied(l, l, l, (f32::from(a) * 0.5).round() as u8)
 }
 
-/// Where the primary button went down this frame (pressed and released in one frame too).
-fn primary_press(ctx: &egui::Context) -> Option<egui::Pos2> {
-    ctx.input(|i| {
-        i.events.iter().find_map(|e| match e {
-            egui::Event::PointerButton {
-                pos,
-                button: egui::PointerButton::Primary,
-                pressed: true,
-                ..
-            } => Some(*pos),
-            _ => None,
-        })
-    })
-}
-
 pub struct Widget {
     rings: [RingTweens; 2],
     controls: Controls,
+    presses: PressTracker,
     #[cfg(test)]
     debug_rects: BTreeMap<&'static str, Rect>,
 }
@@ -76,6 +63,7 @@ impl Widget {
         Widget {
             rings: [RingTweens::new(), RingTweens::new()],
             controls: Controls::default(),
+            presses: PressTracker::default(),
             #[cfg(test)]
             debug_rects: BTreeMap::new(),
         }
@@ -97,6 +85,7 @@ impl Widget {
     pub fn show(&mut self, ctx: &egui::Context, input: &FrameInput) -> FrameOutput {
         #[cfg(test)]
         self.debug_rects.clear();
+        let clicks = self.presses.frame(ctx);
         let state = input.state;
         let rings = match (&state.conn, &state.rings) {
             (Conn::Connected, Some(rings)) => Some(rings),
@@ -132,7 +121,7 @@ impl Widget {
                 self.rings.iter_mut().for_each(RingTweens::reset);
                 if let Some(panel) = panel {
                     let mut noted = vec![];
-                    let done = panel.paint(ctx, &painter, rect, input, &mut |n, r| {
+                    let done = panel.paint(ctx, &painter, rect, input, &clicks, &mut |n, r| {
                         noted.push((n, r));
                     });
                     for (n, r) in noted {
@@ -149,11 +138,17 @@ impl Widget {
             ctx.set_cursor_icon(CursorIcon::Grab);
         }
         let mut noted = vec![];
-        let ctl = self
-            .controls
-            .show(ctx, &painter, rect, input, rings.is_some(), &mut |n, r| {
+        let ctl = self.controls.show(
+            ctx,
+            &painter,
+            rect,
+            input,
+            rings.is_some(),
+            &clicks,
+            &mut |n, r| {
                 noted.push((n, r));
-            });
+            },
+        );
         for (n, r) in noted {
             self.note(n, r);
         }
@@ -161,7 +156,8 @@ impl Widget {
         animating |= ctl.animating;
         nodrag.extend(ctl.nodrag);
         // A primary press on the glass, off every control, moves the window.
-        if primary_press(ctx)
+        if clicks
+            .press
             .is_some_and(|q| rect.contains(q) && !nodrag.iter().any(|r| r.contains(q)))
         {
             actions.push(Action::StartDrag);
