@@ -557,7 +557,7 @@ mod tests {
         let p = Prefs::from_settings(&s, Some("fr-FR"));
         assert_eq!(
             serde_json::to_value(&p).unwrap(),
-            serde_json::json!({"language": "fr", "alwaysOnTop": false, "startWithWindows": true})
+            serde_json::json!({"language": "fr", "alwaysOnTop": false, "startWithWindows": false})
         );
     }
 

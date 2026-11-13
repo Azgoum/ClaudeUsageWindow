@@ -20,7 +20,7 @@ impl Default for Settings {
             language: None,
             org_uuid: None,
             always_on_top: true,
-            start_with_windows: true,
+            start_with_windows: false,
         }
     }
 }
@@ -367,7 +367,7 @@ mod tests {
         let store = SettingsStore::new(dir.path().join("settings.json"));
         let s = store.load();
         assert_eq!(s, Settings::default());
-        assert!(s.always_on_top && s.start_with_windows);
+        assert!(s.always_on_top && !s.start_with_windows);
         assert_eq!(s.position, None);
     }
 
@@ -427,14 +427,22 @@ mod tests {
     }
 
     #[test]
-    fn settings_partial_file_keeps_true_defaults() {
+    fn settings_partial_file_keeps_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         std::fs::write(&path, r#"{"language":"en"}"#).unwrap();
         let s = SettingsStore::new(path).load();
         assert_eq!(s.language.as_deref(), Some("en"));
         assert!(s.always_on_top);
-        assert!(s.start_with_windows);
+        assert!(!s.start_with_windows);
+    }
+
+    #[test]
+    fn existing_file_keeps_start_with_windows_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"start_with_windows":true}"#).unwrap();
+        assert!(SettingsStore::new(path).load().start_with_windows);
     }
 
     #[test]
