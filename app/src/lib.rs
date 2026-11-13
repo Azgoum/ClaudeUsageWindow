@@ -1,8 +1,12 @@
 //! Claude Limit Checker: native egui widget.
 
 pub mod host;
+pub mod launch;
+pub mod logging;
 pub mod platform;
 pub mod render;
+pub mod shell;
+pub mod ui;
 
 use egui::{CornerRadius, LayerId, Pos2, Rect, Stroke, StrokeKind, Vec2};
 

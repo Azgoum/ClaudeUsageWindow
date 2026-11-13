@@ -23,14 +23,26 @@ eframe = { version = "0.37", default-features = false, optional = true }
 wgpu = { version = "30", default-features = false, features = ["dx12"], optional = true }
 egui-winit = { version = "0.37", default-features = false }
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
+limits-core = { path = "../crates/limits-core" }
+tokio = { version = "1", features = ["sync", "time"] }
+url = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+file-rotate = "0.7"
+serde = { version = "1", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
+winreg = "0.55"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[dev-dependencies]
+tempfile = "3"
 
 [[example]]
 name = "spike_glow"

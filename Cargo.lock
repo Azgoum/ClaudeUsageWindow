@@ -2850,12 +2850,22 @@ dependencies = [
 name = "limitrings"
 version = "0.2.0"
 dependencies = [
+ "anyhow",
  "eframe",
  "egui",
  "egui-winit",
+ "file-rotate",
+ "limits-core",
+ "serde",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
  "wgpu",
  "windows-sys 0.61.2",
  "winit",
+ "winreg 0.55.0",
 ]
 
 [[package]]
