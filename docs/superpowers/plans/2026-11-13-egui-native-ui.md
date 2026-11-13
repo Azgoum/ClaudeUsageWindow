@@ -786,3 +786,14 @@ $ cargo build --release -p limitrings
 ```
 
 All processes started here (limitrings, node fake server, background form) were stopped. The real Run key was not touched; the true release build was never connected.
+
+Task 17 fix (idle CPU, b9543b2): the 2.6 % came from the 30 s poll, not from a tick. Each poll recomputes the expected pace at the new time (the session tick moves ~0.6°); `RingTweens::update` retargeted a 0.8 s tween for it, and the host then repainted uncapped (~110 fps, ~9 ms a frame) for 0.8 s: ~0.8 s of UI-thread CPU per poll (per-thread TotalProcessorTime: all on the UI thread; tokio workers 0). Arc and tick moves under 1.5° (about half a pixel) now snap when nothing is in flight; visible moves still ease. Regression tests: `rings::tests::pace_drift_between_polls_snaps_without_animating`, `widget::snapshot_tests::a_poll_with_unchanged_usage_does_not_animate`. Also in 4e0b623: at most 3 immediate `again` repaints in a row (then the widget's delay), SetWindowTheme / SetWindowRgn / TrackMouseEvent failures logged.
+
+Re-measured (`measure` build, fake-claude, 60 s window at the 5-minute mark, TotalProcessorTime delta):
+
+| State | Before (40de692) | After (b9543b2) |
+|---|---|---|
+| connected (`AUTOCONNECT=1`, 62 % / 34 %) | 1.578 s per 60 s | **0.016 s per 60 s** (one timer quantum: one frame per poll) |
+| disconnected (no dev credentials, connect panel) | 0.000 s per 60 s | 0.016 s per 60 s |
+
+Private bytes unchanged (4.0 MB disconnected, 5.05 MB connected). The "true release exe, disconnected" row above was most likely connected: the release exe finds the owner's saved credentials in Windows Credential Manager at start and goes Connected on its own, so it showed the same per-poll cost. It was not re-measured (it would poll the real account).
