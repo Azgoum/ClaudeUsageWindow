@@ -98,3 +98,5 @@ node tools/fake-claude/server.mjs
 ## Licence
 
 [MIT](LICENSE) © 2026 Aziz Goumiri
+
+L'exe embarque la police Inter (sous-ensemble), © The Inter Project Authors, sous [licence SIL Open Font License 1.1](app/assets/fonts/OFL.txt).

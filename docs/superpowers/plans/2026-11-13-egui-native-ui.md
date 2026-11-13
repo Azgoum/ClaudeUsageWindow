@@ -797,3 +797,22 @@ Re-measured (`measure` build, fake-claude, 60 s window at the 5-minute mark, Tot
 | disconnected (no dev credentials, connect panel) | 0.000 s per 60 s | 0.016 s per 60 s |
 
 Private bytes unchanged (4.0 MB disconnected, 5.05 MB connected). The "true release exe, disconnected" row above was most likely connected: the release exe finds the owner's saved credentials in Windows Credential Manager at start and goes Connected on its own, so it showed the same per-poll cost. It was not re-measured (it would poll the real account).
+
+Final-review fix wave (frame pacing): `Repaint::Now` (and a zero egui repaint delay) used to mean "next frame at once", so every animation ran back to back at about 110 fps (~9 ms CPU raster a frame). Now the next frame is due at least `FRAME_INTERVAL` = 16 ms after the previous frame's **start** (about 60 fps, like Phase 1's vsync), and the Waiting spinner alone repaints every 33 ms (30 fps: its head moves ~1.3 pt a frame). The capped `again` fit repaints stay immediate; input still repaints at once. Test: `host::tests::animation_frames_are_paced_to_about_60_fps` (fails without the floor).
+
+Method: `measure` build, fake-claude on 8787 (a fresh server per run), `LIMITRINGS_BASE_URL` + `FAKE_SESSION=1` + `AUTOCONNECT=1`, TotalProcessorTime deltas. **Waiting**: AUTOCONNECT sends Connect before the window opens and the fake login lands 5 s later, so the process is in Waiting from start to ~5 s; the window is 1.0 s to 4.5 s after start (past startup), 5 runs, scaled to 60 s. **Tween**: connected and settled, then `use-claude?n=6` (+3 % session each 30 s poll: one visible 0.8 s ring tween per poll), 60 s window, 2 runs. **Surprise**: `surprise-both`, 35 s window holding the next poll and its reset animation, 2 runs.
+
+| State | Before (41dee87) | After (fix wave) |
+|---|---|---|
+| Waiting (spinner) | 3.47 s per 3.5 s = **~99 % of one core** (59.4 s per 60 s) | 0.95 s per 3.5 s = **~27 % of one core** (16.3 s per 60 s) |
+| connected, a 0.8 s tween per poll | 1.62 s per 60 s | **0.87 s per 60 s** |
+| surprise reset (both rings), one per 35 s | 4.48 s per event | 3.97 s per event |
+| connected idle | 0.031 s per 60 s | 0.047 s per 60 s (timer quanta) |
+
+The surprise reset barely moves: sampled every 250 ms it keeps the UI thread ~90 % busy for ~4.4 s before and after, i.e. its frames (glow, sparks, pill) take longer than 16 ms to rasterize, so the pace never binds. That is raster cost, not pacing; left as a follow-up. Waiting still costs ~27 % of a core because every frame rasterizes the whole window for a 12 pt spinner.
+
+Refresh-spin icon (Task 11 deferred minor): the 0.9 s spin re-rasterizes the ~19×19 px icon each frame at 25 samples a pixel against ~94 segments (~850 k distance tests, an estimated 2–4 ms a frame). Added the centre-distance early-out: the paths lie in a ring around the icon center, and a sample farther than half the stroke outside it skips the segment tests (about 60 % of the turned box for RefreshCw). Exact: `controls::tests::icon_early_out_paints_exactly_what_the_full_test_paints` compares pixels with the brute force. Not measured on the real window (needs a pointer click on it).
+
+Quit right after a move (e2e, dev settings, no network): window moved with SetWindowPos then WM_CLOSE 100 ms later. Before: settings kept `1660,16` (lost). After: `330,340` saved (`exiting` flushes `MoveSaver`).
+
+Release exe after the wave: 6 406 656 B (+47 KB: `tracing-log`).

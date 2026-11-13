@@ -97,3 +97,5 @@ node tools/fake-claude/server.mjs
 ## License
 
 [MIT](LICENSE) © 2026 Aziz Goumiri
+
+The exe embeds the Inter typeface (subset), © The Inter Project Authors, licensed under the [SIL Open Font License 1.1](app/assets/fonts/OFL.txt).
