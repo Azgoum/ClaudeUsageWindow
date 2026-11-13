@@ -9,6 +9,11 @@ use super::format::{fmt_day, fmt_dur, fmt_time};
 use super::i18n::t;
 use super::Lang;
 
+/// JS `Math.round`: halves round toward +infinity (-2.5 -> -2).
+fn js_round(x: f64) -> i64 {
+    (x + 0.5).floor() as i64
+}
+
 /// Circumference of the r=23 ring.
 pub const CIRC: f32 = 2.0 * std::f32::consts::PI * 23.0;
 
@@ -134,10 +139,10 @@ pub fn tip_model(r: &RingView, now: DateTime<Utc>, tz: FixedOffset, lang: Lang) 
     let mut usage = (l.used)(ring_number(r.used));
     if let Some(exp) = r.expected {
         usage.push_str(" · ");
-        usage.push_str(&(l.expected)(exp.round() as i64));
+        usage.push_str(&(l.expected)(js_round(exp)));
     }
     let pace = r.expected.map(|exp| {
-        let diff = (r.used - exp).round() as i64;
+        let diff = js_round(r.used - exp);
         let text = match r.pace {
             Pace::Ahead => (l.ahead)(diff),
             Pace::Room => (l.room)(-diff),
@@ -299,6 +304,17 @@ mod tests {
         assert_eq!(usage, "34 % utilisé · attendu 45 %");
         assert_eq!(pace, Some(("11 pts de marge".to_string(), colors::BLUE)));
         assert_eq!(resets.as_deref(), Some("Reset ven. 23:59 (dans 3 j 12 h)"));
+    }
+    #[test]
+    fn tip_room_rounds_negative_half_like_js() {
+        let r = RingView {
+            used: 42.5,
+            expected: Some(45.0),
+            pace: Pace::Room,
+            ..ring()
+        };
+        let (_, _, pace, _) = active(tip_model(&r, now(), cet(), Lang::En));
+        assert_eq!(pace.unwrap().0, "2 pts of room");
     }
     #[test]
     fn tip_on_track() {

@@ -1,10 +1,9 @@
 //! Test fixtures: port of the Phase 1 `mockBridge.ts` scenarios and resets.
 //!
 //! Orgs are `Jane's Organization` and `Acme Studio`; no real account data, no email.
-//! "Next Friday 23:59" is computed in UTC (the scenario has no zone); snapshot tests that want
-//! a local time pass `tz = UTC` to the formatters.
+//! "Next Friday 23:59" is computed in CET (`tz()`, UTC+1), the zone snapshot tests render with.
 
-use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Duration, FixedOffset, TimeZone, Utc};
 use limits_core::{
     AppState, Conn, ErrorInfo, LimitKey, OrgSummary, Pace, Plan, ResetEvent, ResetKind, RingView,
 };
@@ -31,13 +30,20 @@ fn org_team() -> OrgSummary {
     }
 }
 
-/// Next Friday 23:59 (UTC), always in the future.
+/// Fixture zone: CET (UTC+1, November).
+pub fn tz() -> FixedOffset {
+    FixedOffset::east_opt(3600).unwrap()
+}
+
+/// Next Friday 23:59 in `tz()`, as UTC, always in the future.
 fn next_friday_2359(now: DateTime<Utc>) -> DateTime<Utc> {
-    let d = now.date_naive();
+    let d = now.with_timezone(&tz()).date_naive();
     let ahead = (5 + 7 - d.weekday().num_days_from_sunday() as i64) % 7;
     let at = |days: i64| {
         let day = d + Duration::days(days);
-        Utc.from_utc_datetime(&day.and_hms_opt(23, 59, 0).unwrap())
+        tz().from_local_datetime(&day.and_hms_opt(23, 59, 0).unwrap())
+            .unwrap()
+            .with_timezone(&Utc)
     };
     let f = at(ahead);
     if f <= now {
@@ -234,13 +240,12 @@ fn early_secs(key: LimitKey) -> i64 {
 }
 
 /// Applies a reset to `base`: planned / surprise (session ring), plannedWeekly / surpriseWeekly
-/// (weekly ring), both (two surprises), bothPlanned (two planned resets). `now` is `base.last_ok`
-/// (what `scenario` sets), else the wall clock. Returns `base` unchanged without rings.
-pub fn reset_state(base: &AppState, kind: &str, seq: u64) -> AppState {
+/// (weekly ring), both (two surprises), bothPlanned (two planned resets). Returns `base` unchanged
+/// without rings.
+pub fn reset_state(base: &AppState, kind: &str, seq: u64, now: DateTime<Utc>) -> AppState {
     let Some(rs) = &base.rings else {
         return base.clone();
     };
-    let now = base.last_ok.unwrap_or_else(Utc::now);
     let keys: &[LimitKey] = match kind {
         "both" | "bothPlanned" => &[LimitKey::Session, LimitKey::Weekly],
         "plannedWeekly" | "surpriseWeekly" => &[LimitKey::Weekly],
@@ -303,14 +308,31 @@ mod tests {
 
     #[test]
     fn friday_is_next_and_in_the_future() {
-        let f = next_friday_2359(now());
-        assert_eq!(f, Utc.with_ymd_and_hms(2026, 11, 6, 23, 59, 0).unwrap());
+        let cet = |d, h, m, s| tz().with_ymd_and_hms(2026, 11, d, h, m, s).unwrap();
+        assert_eq!(next_friday_2359(now()), cet(6, 23, 59, 0));
         // On a Friday after 23:59 it moves a week on.
-        let late = Utc.with_ymd_and_hms(2026, 11, 6, 23, 59, 30).unwrap();
         assert_eq!(
-            next_friday_2359(late),
-            Utc.with_ymd_and_hms(2026, 11, 13, 23, 59, 0).unwrap()
+            next_friday_2359(cet(6, 23, 59, 30).with_timezone(&Utc)),
+            cet(13, 23, 59, 0)
         );
+    }
+
+    #[test]
+    fn weekly_reset_reads_fri_2359_in_cet() {
+        use crate::ui::{format::fmt_day, Lang};
+        let [_, weekly] = scenario("connected", now()).rings.unwrap();
+        assert_eq!(
+            fmt_day(&weekly.resets_at.unwrap().with_timezone(&tz()), Lang::En),
+            "Fri 23:59"
+        );
+    }
+
+    #[test]
+    fn reset_uses_the_given_now_not_last_ok() {
+        let base = scenario("error", now()); // last_ok is now - 4 min
+        let s = reset_state(&base, "planned", 1, now());
+        assert_eq!(s.rings.unwrap()[0].resets_at, Some(now() + hours(5.0)));
+        assert_eq!(s.last_ok, Some(now()));
     }
 
     #[test]
@@ -381,7 +403,7 @@ mod tests {
     #[test]
     fn planned_resets_the_session_ring() {
         let base = scenario("connected", now());
-        let s = reset_state(&base, "planned", 7);
+        let s = reset_state(&base, "planned", 7, now());
         assert_eq!(s.reset_seq, 7);
         assert_eq!(
             s.resets,
@@ -403,7 +425,7 @@ mod tests {
     #[test]
     fn surprise_kinds() {
         let base = scenario("connected", now());
-        let s = reset_state(&base, "surpriseWeekly", 1);
+        let s = reset_state(&base, "surpriseWeekly", 1, now());
         assert_eq!(
             s.resets[0].kind,
             ResetKind::Surprise {
@@ -411,15 +433,15 @@ mod tests {
             }
         );
         assert_eq!(s.resets[0].key, LimitKey::Weekly);
-        let both = reset_state(&base, "both", 2);
+        let both = reset_state(&base, "both", 2, now());
         assert_eq!(both.resets.len(), 2);
         assert_eq!(
             both.resets[0].kind,
             ResetKind::Surprise { early_secs: 8040 }
         );
-        let bp = reset_state(&base, "bothPlanned", 3);
+        let bp = reset_state(&base, "bothPlanned", 3, now());
         assert!(bp.resets.iter().all(|e| e.kind == ResetKind::Planned));
-        let pw = reset_state(&base, "plannedWeekly", 4);
+        let pw = reset_state(&base, "plannedWeekly", 4, now());
         assert_eq!(pw.resets.len(), 1);
         assert_eq!(pw.rings.unwrap()[1].used, 0.0);
     }
@@ -427,6 +449,6 @@ mod tests {
     #[test]
     fn reset_without_rings_is_a_no_op() {
         let base = scenario("waiting", now());
-        assert_eq!(reset_state(&base, "planned", 9), base);
+        assert_eq!(reset_state(&base, "planned", 9, now()), base);
     }
 }
