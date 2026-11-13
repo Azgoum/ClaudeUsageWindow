@@ -13,16 +13,20 @@ impl Lerp for f32 {
     }
 }
 
-/// Linear in unmultiplied sRGB, like CSS color transitions.
+/// Linear on the premultiplied components, like CSS color transitions (no drift through black).
 impl Lerp for Color32 {
     fn lerp(a: Color32, b: Color32, t: f32) -> Color32 {
-        let (a, b) = (a.to_srgba_unmultiplied(), b.to_srgba_unmultiplied());
-        let c = |i: usize| {
-            (f32::from(a[i]) + (f32::from(b[i]) - f32::from(a[i])) * t)
+        let c = |a: u8, b: u8| {
+            (f32::from(a) + (f32::from(b) - f32::from(a)) * t)
                 .round()
                 .clamp(0.0, 255.0) as u8
         };
-        Color32::from_rgba_unmultiplied(c(0), c(1), c(2), c(3))
+        Color32::from_rgba_premultiplied(
+            c(a.r(), b.r()),
+            c(a.g(), b.g()),
+            c(a.b(), b.b()),
+            c(a.a(), b.a()),
+        )
     }
 }
 
@@ -106,7 +110,22 @@ mod tests {
     }
 
     #[test]
-    fn colors_lerp_in_unmultiplied_srgb() {
+    fn transparent_to_opaque_red_keeps_hue() {
+        let m = Color32::lerp(Color32::TRANSPARENT, Color32::from_rgb(255, 0, 0), 0.5);
+        assert_eq!([m.r(), m.g(), m.b(), m.a()], [128, 0, 0, 128]);
+    }
+
+    #[test]
+    fn nonlinear_retarget_mid_flight_starts_from_shown_value() {
+        let mut tw = Tween::new(0.0f32);
+        tw.retarget(0.0, 1.0, 1.0, EASE_RING);
+        let shown = tw.value(0.4);
+        tw.retarget(0.4, 0.0, 1.0, EASE_RING);
+        assert!((tw.value(0.4) - shown).abs() < 1e-6);
+    }
+
+    #[test]
+    fn colors_lerp_opaque() {
         let a = Color32::from_rgba_unmultiplied(0, 100, 200, 255);
         let b = Color32::from_rgba_unmultiplied(100, 200, 100, 255);
         let m = Color32::lerp(a, b, 0.5).to_srgba_unmultiplied();

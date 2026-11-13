@@ -221,4 +221,13 @@ mod tests {
         assert!((EASE_CSS.apply(0.5) - 0.8024).abs() < 1e-3);
         assert!(EASE_RING.apply(0.8) > 1.0); // overshoots
     }
+
+    #[test]
+    fn ease_out_is_monotonic_and_bounded_near_the_ends() {
+        let ts = [0.0f32, 0.005, 0.01, 0.02, 0.5, 0.98, 0.99, 0.995, 1.0];
+        let ys: Vec<f32> = ts.iter().map(|&t| EASE_OUT.apply(t)).collect();
+        assert!(ys.iter().all(|y| (0.0..=1.0).contains(y)));
+        assert!(ys.windows(2).all(|w| w[0] <= w[1]));
+        assert!(ys[2] > 0.0 && ys[6] < 1.0);
+    }
 }

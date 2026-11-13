@@ -15,6 +15,11 @@ impl Track {
     /// Evenly spaced keys when `times` is `None`.
     pub fn new(dur_ms: f64, values: &[f32], times: Option<&[f32]>, ease: Ease) -> Track {
         let n = values.len();
+        debug_assert!(n > 0, "a track needs at least one key");
+        debug_assert!(
+            times.is_none_or(|t| t.len() == n),
+            "times/values length mismatch"
+        );
         let keys = values
             .iter()
             .enumerate()
