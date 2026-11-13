@@ -186,7 +186,19 @@ fn fade(c: Color32, f: f32) -> Color32 {
 
 /// One line of text in a CSS line box `font.size × 1.2` tall, glyphs centered in it.
 fn line_galley(p: &Painter, text: &str, font: FontId, color: Color32) -> Arc<Galley> {
-    let line_height = Some(font.size * LINE_HEIGHT);
+    let line_height = font.size * LINE_HEIGHT;
+    line_galley_in(p, text, font, color, line_height)
+}
+
+/// One line of text centered in a line box `line_height` tall.
+fn line_galley_in(
+    p: &Painter,
+    text: &str,
+    font: FontId,
+    color: Color32,
+    line_height: f32,
+) -> Arc<Galley> {
+    let line_height = Some(line_height);
     let mut job = LayoutJob::single_section(
         text.to_owned(),
         TextFormat {
@@ -211,6 +223,31 @@ pub fn centered_line(
 ) {
     let g = line_galley(p, text, font, color);
     p.galley(pos2(center_x - g.size().x / 2.0, top), g, color);
+}
+
+/// Like `centered_line`, but a line wider than `max_width` is drawn in a smaller font
+/// (same line box) so it fits. Returns the painted text's rect.
+pub fn centered_line_fit(
+    p: &Painter,
+    text: &str,
+    font: FontId,
+    color: Color32,
+    center_x: f32,
+    top: f32,
+    max_width: f32,
+) -> Rect {
+    let line_height = font.size * LINE_HEIGHT;
+    let mut g = line_galley_in(p, text, font.clone(), color, line_height);
+    let mut size = font.size;
+    // Glyph positions snap to pixels, so the width is not exactly linear in the size: retry.
+    while g.size().x > max_width && size > 1.0 {
+        size = (size * max_width / g.size().x - 0.05).max(1.0);
+        let smaller = FontId::new(size, font.family.clone());
+        g = line_galley_in(p, text, smaller, color, line_height);
+    }
+    let rect = Rect::from_min_size(pos2(center_x - g.size().x / 2.0, top), g.size());
+    p.galley(rect.min, g, color);
+    rect
 }
 
 /// Baseline of the galley's first row, from the galley top.

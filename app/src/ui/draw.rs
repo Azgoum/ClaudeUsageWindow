@@ -241,9 +241,11 @@ pub fn soft_shadow(p: &Painter, rect: Rect, radius: f32, offset_y: f32, blur: f3
 /// A round-capped arc of the circle (`center`, `r`), `width` wide, from
 /// `from_turn` to `to_turn` (turns from 12 o'clock, clockwise). `px` is one
 /// physical pixel in points: every outer edge gets a `px` feather. Empty when
-/// `to_turn - from_turn <= 0`. A sweep whose caps would touch or overlap across the
-/// gap (≥ 1 − the two caps' angular extent, ~95 % for the r 23 ring) is a closed
-/// ring without caps, so a translucent arc never blends twice where they meet.
+/// `to_turn - from_turn <= 0`; a full turn or more is a closed ring without caps.
+/// A *translucent* arc whose caps would touch or overlap across the gap (sweep ≥
+/// 1 − the two caps' angular extent, ~95 % for the r 23 ring) is also drawn closed,
+/// so it never blends twice where the caps meet. Opaque arcs keep their caps and gap
+/// (overlapping opaque caps look the same as one).
 pub fn arc_mesh(
     center: Pos2,
     r: f32,
@@ -278,7 +280,8 @@ fn arc(
     let hw = width / 2.0;
     // Each round cap reaches `hw + px / 2` past its end: both together span this many turns.
     let caps_turns = 2.0 * (hw + px / 2.0) / (TAU * r);
-    let closed = sweep >= 1.0 || (caps && sweep >= 1.0 - caps_turns);
+    let translucent = color.a() < 255;
+    let closed = sweep >= 1.0 || (caps && translucent && sweep >= 1.0 - caps_turns);
     let sweep = if closed { 1.0 } else { sweep };
     // A stroke thinner than a pixel becomes a fainter one-pixel stroke.
     let (solid, color) = if hw >= px / 2.0 {
@@ -790,6 +793,12 @@ mod tests {
                 }
             }
         }
+        // An opaque near-full arc keeps its caps and gap: the caps overlap on the centerline
+        // (harmless when opaque) but the round ends leave the notch at the outer edge.
+        let c96 = arc_mesh(c, 23.0, 6.0, 0.0, 0.96, colors::RED, 1.0);
+        assert_eq!(coverage(&c96, c + radial(0.98) * 23.0), 2);
+        assert_eq!(coverage(&c96, c + radial(0.98) * 25.3), 0);
+        assert_eq!(coverage(&c96, c + radial(0.98) * 20.7), 0);
         // Far from full, the caps stay (the gap is visible).
         let open = arc_mesh(c, 23.0, 6.0, 0.0, 0.9, colors::TRACK, 1.0);
         assert_eq!(coverage(&open, c + radial(0.95) * 23.0), 0);

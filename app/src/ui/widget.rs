@@ -21,6 +21,7 @@ const ROW_PAD_BOTTOM: f32 = 22.0;
 const ROW_GAP: f32 = 6.0;
 /// `.wd .foot { padding: 0 12px 9px; font-size: 10.5px }`.
 const FOOT_SIZE: f32 = 10.5;
+const FOOT_PAD_X: f32 = 12.0;
 const FOOT_PAD_BOTTOM: f32 = 9.0;
 /// `.wd .st { width: 242px; padding: 26px 18px 14px }` (Task 10 fills it).
 const PANEL_W: f32 = 242.0;
@@ -161,7 +162,11 @@ impl Widget {
             let top = row_top + COLUMN_H + ROW_PAD_BOTTOM;
             let text = err_line(err.retry_at, input.now, lang);
             let font = fonts::regular(FOOT_SIZE);
-            rings::centered_line(p, &text, font, colors::ERR_TEXT, rect.center().x, top);
+            let max_width = rect.width() - 2.0 * (BORDER + FOOT_PAD_X);
+            let cx = rect.center().x;
+            let shown =
+                rings::centered_line_fit(p, &text, font, colors::ERR_TEXT, cx, top, max_width);
+            self.note("err_foot", shown);
         }
         animating
     }
@@ -353,6 +358,31 @@ mod snapshot_tests {
             off <= 50,
             "{off} pixels differ by more than 8 (worst {worst})"
         );
+    }
+
+    #[test]
+    fn error_foot_fits_inside_its_padding() {
+        // 244 − 2 × (1 + 12).
+        for lang in [Lang::En, Lang::Fr] {
+            let h = render("error", lang, 1.0);
+            let foot = h.state().widget.debug_rects()["err_foot"];
+            assert!(
+                foot.left() >= 13.0 && foot.right() <= 231.0,
+                "{lang:?} {foot:?}"
+            );
+        }
+        // A line far too long is shrunk to the same width.
+        let ctx = egui::Context::default();
+        fonts::install(&ctx);
+        let mut out = ctx.run_pass(egui::RawInput::default(), |ctx| {
+            let p = ctx.layer_painter(LayerId::background());
+            let long = "claude.ai not responding · retry in 2 min · ".repeat(3);
+            let font = fonts::regular(10.5);
+            let r = rings::centered_line_fit(&p, &long, font, Color32::WHITE, 122.0, 0.0, 218.0);
+            assert!(r.width() <= 218.0 && r.width() > 200.0, "{r:?}");
+            assert!((r.center().x - 122.0).abs() < 0.01);
+        });
+        out.textures_delta.clear();
     }
 
     fn snap(kind: &str, lang: Lang, ppp: f32, name: &str) {
