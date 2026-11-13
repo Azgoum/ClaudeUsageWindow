@@ -1,7 +1,7 @@
 //! Surprise-reset timeline, gold glow and sparks (port of `ui/src/anim/surprise.ts`,
 //! `components/Sparks.tsx`).
 
-use super::easing::{Ease, EASE_DEFAULT};
+use super::easing::{Ease, EASE_CSS, EASE_DEFAULT};
 use super::planned::{delayed, RingFrame};
 use super::track::Track;
 use crate::ui::colors::GOLD;
@@ -12,7 +12,8 @@ pub fn surprise_frame(ms: f64, from_used: f64, live_num: i64) -> RingFrame {
     let from = (from_used / 100.0) as f32;
     let mut f = RingFrame::rest(live_num, GOLD);
     f.arc_flash = Track::new(420.0, &[0.0, 1.0, 0.25], None, EASE_DEFAULT).sample(ms);
-    f.tick_alpha = if ms < 380.0 { 1.0 } else { 0.0 };
+    // The tick fades through its CSS opacity transition (.3s ease), like the planned reset.
+    f.tick_alpha = delayed(Track::new(300.0, &[1.0, 0.0], None, EASE_CSS), 380.0).sample(ms);
     let sweep = Ease::CubicBezier(0.4, 0.0, 0.2, 1.0);
     f.arc_fraction = delayed(Track::new(380.0, &[from, 0.0], None, sweep), 380.0).sample(ms);
     f.arc_alpha = delayed(Track::new(380.0, &[1.0, 0.2], None, sweep), 380.0).sample(ms);
@@ -135,6 +136,14 @@ mod tests {
         );
         assert!(f.arc_alpha < 0.3);
         assert!(surprise_frame(500.0, 62.0, 7).num_blur > 0.0);
+    }
+
+    #[test]
+    fn surprise_tick_fades_over_300ms_from_380() {
+        assert_eq!(surprise_frame(380.0, 62.0, 7).tick_alpha, 1.0);
+        let mid = surprise_frame(530.0, 62.0, 7).tick_alpha;
+        assert!(mid > 0.0 && mid < 1.0, "{mid}");
+        assert_eq!(surprise_frame(680.0, 62.0, 7).tick_alpha, 0.0);
     }
 
     #[test]

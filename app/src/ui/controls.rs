@@ -16,7 +16,7 @@ use egui::{
 };
 use limits_core::Command;
 
-use super::draw::{self, Icon, FLAG_RADIUS};
+use super::draw::{self, rrect_sdf, Icon, FLAG_RADIUS};
 use super::input::Clicks;
 use super::{colors, Action, FrameInput, Lang};
 use crate::anim::easing::EASE_CSS;
@@ -159,13 +159,6 @@ fn raster(bounds: Rect, ppp: f32, sample: &dyn Fn(Pos2) -> [f32; 4]) -> (ColorIm
     }
     let quad = Rect::from_min_max(pos2(x0 / ppp, y0 / ppp), pos2(x1 / ppp, y1 / ppp));
     (ColorImage::new([w, h], pixels), quad)
-}
-
-/// Signed distance to the rounded rect (negative inside).
-fn rrect_sdf(r: Rect, radius: f32, q: Pos2) -> f32 {
-    let half = r.size() / 2.0 - Vec2::splat(radius);
-    let d = (q - r.center()).abs() - half;
-    vec2(d.x.max(0.0), d.y.max(0.0)).length() + d.x.max(d.y).min(0.0) - radius
 }
 
 fn inside_convex(poly: &[Pos2], q: Pos2) -> bool {

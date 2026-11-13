@@ -15,12 +15,37 @@ use super::connect::{Panel, PANEL_W};
 use super::controls::{ease_css, Controls};
 use super::input::PressTracker;
 use super::menu_view::Menu;
+use super::resets::Resets;
 use super::ring::{err_line, is_near_limit};
+#[cfg(test)]
+use super::rings::Live;
 use super::rings::{self, Column, RingTweens, COLUMN_H, COLUMN_W, LINE_HEIGHT};
 use super::room::{self, RingRooms};
 use super::tooltip::{self, Tip};
-use super::{colors, draw, fonts, Action, FrameInput, FrameOutput, Repaint};
+use super::{colors, draw, fonts, pill, sparks, Action, FrameInput, FrameOutput, Repaint};
+#[cfg(test)]
 use crate::anim::RingFrame;
+
+/// How often a shown countdown (error retry) or an open tooltip ("updated X ago") ticks.
+const TICK: Duration = Duration::from_secs(1);
+
+/// When the host must paint again without input: at once while something moves (animations,
+/// transitions, the Waiting spinner, a popup's first frame), each second while a countdown or
+/// a tooltip shows, else only on input or state change.
+pub fn repaint_policy(
+    animating: bool,
+    spinner: bool,
+    countdown: bool,
+    tooltip_open: bool,
+) -> Repaint {
+    if animating || spinner {
+        Repaint::Now
+    } else if countdown || tooltip_open {
+        Repaint::After(TICK)
+    } else {
+        Repaint::Idle
+    }
+}
 
 const BORDER: f32 = 1.0;
 const ROW_PAD_TOP: f32 = 24.0;
@@ -60,8 +85,28 @@ fn column_rects(rect: Rect) -> [Rect; 2] {
 
 const TIP_NAMES: [&str; 2] = ["tip_session", "tip_weekly"];
 
+/// The ring's center below its column top (the 64 px SVG box's middle).
+const RING_C: f32 = 32.0;
+
+/// Reset state is indexed by limit: session 0, weekly 1.
+fn key_index(key: LimitKey) -> usize {
+    match key {
+        LimitKey::Session => 0,
+        LimitKey::Weekly => 1,
+    }
+}
+
 pub struct Widget {
     rings: [RingTweens; 2],
+    resets: Resets,
+    /// The ring views drawn on the last frame (held ones while locked), `None` without rings.
+    shown: Option<[RingView; 2]>,
+    /// The rings were on screen last frame (else the next rings view plays the entrance).
+    rings_up: bool,
+    #[cfg(test)]
+    debug_frames: [Option<RingFrame>; 2],
+    #[cfg(test)]
+    debug_t: f64,
     controls: Controls,
     presses: PressTracker,
     menu: Menu,
@@ -81,6 +126,13 @@ impl Widget {
     pub fn new() -> Widget {
         Widget {
             rings: [RingTweens::new(), RingTweens::new()],
+            resets: Resets::default(),
+            shown: None,
+            rings_up: false,
+            #[cfg(test)]
+            debug_frames: [None, None],
+            #[cfg(test)]
+            debug_t: 0.0,
             controls: Controls::default(),
             presses: PressTracker::default(),
             menu: Menu::default(),
@@ -101,6 +153,36 @@ impl Widget {
     #[cfg(test)]
     pub fn debug_menu_items(&self) -> &[(String, Rect)] {
         &self.debug_menu_items
+    }
+
+    /// Acts as if the rings had been on screen already: the first rings view plays no entrance.
+    #[cfg(test)]
+    pub fn skip_entrance(&mut self) {
+        self.rings_up = true;
+    }
+
+    #[cfg(test)]
+    pub fn debug_resets(&self) -> &Resets {
+        &self.resets
+    }
+
+    /// The ring views drawn by the last `show`.
+    #[cfg(test)]
+    pub fn debug_views(&self) -> Option<&[RingView; 2]> {
+        self.shown.as_ref()
+    }
+
+    /// The reset frames drawn by the last `show`.
+    #[cfg(test)]
+    pub fn debug_frames(&self) -> &[Option<RingFrame>; 2] {
+        &self.debug_frames
+    }
+
+    /// The rings' live (transitioned) values at the last `show`'s clock.
+    #[cfg(test)]
+    pub fn debug_live(&self) -> [Live; 2] {
+        let t = self.debug_t;
+        [self.rings[0].value(t), self.rings[1].value(t)]
     }
 
     #[cfg_attr(not(test), expect(unused_variables))]
@@ -149,7 +231,12 @@ impl Widget {
             ))
             .with_clip_rect(window);
 
+        #[cfg(test)]
+        {
+            self.debug_t = input.t;
+        }
         let mut animating = false;
+        let mut spinner = false;
         let mut actions = vec![];
         let mut nodrag = vec![];
         // The menu first: it sits on top, so it takes the clicks on its box.
@@ -164,10 +251,14 @@ impl Widget {
         );
         match (rings, &panel) {
             (Some(rings), _) => {
-                animating = self.paint_rings(&painter, rect, rings, [None, None], input);
+                animating = self.paint_rings(&painter, rect, rings, input);
             }
             (None, panel) => {
                 self.rings.iter_mut().for_each(RingTweens::reset);
+                // Rings gone: no lock, glow, sparks or pill left for when they come back.
+                self.resets.clear(state.reset_seq);
+                self.shown = None;
+                self.rings_up = false;
                 if let Some(panel) = panel {
                     let mut noted = vec![];
                     let done = panel.paint(ctx, &painter, rect, input, &clicks, &mut |n, r| {
@@ -177,7 +268,7 @@ impl Widget {
                         self.note(n, r);
                     }
                     actions.extend(done.actions);
-                    animating = done.animating;
+                    spinner = done.animating;
                     nodrag = done.nodrag;
                 }
             }
@@ -204,6 +295,10 @@ impl Widget {
         actions.extend(ctl.actions);
         animating |= ctl.animating;
         nodrag.extend(ctl.nodrag);
+        // Reset effects paint over the rings and the controls (`.glow`, `.chip`, `.sparks`).
+        if rings.is_some() {
+            self.paint_effects(&painter, rect, input);
+        }
         // A primary press on the glass, off every control and popup, moves the window.
         let drag = clicks.press.is_some_and(|q| {
             rect.contains(q) && !nodrag.iter().any(|r| r.contains(q)) && !clicks.is_blocked(q)
@@ -268,13 +363,9 @@ impl Widget {
             p.multiply_opacity(if fits { 1.0 } else { 0.0 });
             m.layout.paint(ctx, &p, m.min, pointer);
         }
-        let repaint = if animating || !fits {
-            Repaint::Now
-        } else if tip_open {
-            Repaint::After(Duration::from_secs(1))
-        } else {
-            Repaint::Idle
-        };
+        // The error retry countdown shows on the rings' foot line or as the lone panel line.
+        let countdown = state.conn == Conn::Connected && error;
+        let repaint = repaint_policy(animating || !fits, spinner, countdown, tip_open);
         FrameOutput {
             actions,
             size,
@@ -283,42 +374,71 @@ impl Widget {
         }
     }
 
-    /// The rings row (and the error foot line). `frames` override each ring while a reset
-    /// animation plays. Returns whether a transition is still running.
+    /// The rings row (and the error foot line), with the reset animations of `self.resets`.
+    /// Returns whether a transition or animation is still running.
     fn paint_rings(
         &mut self,
         p: &Painter,
         rect: Rect,
         rings: &[RingView; 2],
-        frames: [Option<&RingFrame>; 2],
         input: &FrameInput,
     ) -> bool {
         let lang = input.prefs.lang;
+        let t = input.t;
         let error = input.state.error.as_ref();
         let fx: &dyn Fn(Color32) -> Color32 = if error.is_some() { &gray_half } else { &|c| c };
         let row_top = rect.top() + BORDER + ROW_PAD_TOP;
-        let mut animating = false;
         let cols = column_rects(rect);
+        let centers = cols.map(|c| pos2(c.center().x, c.top() + RING_C) - rect.min.to_vec2());
+        self.resets.observe(
+            input.state,
+            self.shown.as_ref(),
+            rings,
+            centers,
+            t,
+            input.reduced_motion,
+            lang,
+        );
+        for (i, from) in self.resets.advance(t, input.reduced_motion) {
+            self.rings[i].hand_over(from);
+        }
+        let entering = !self.rings_up && !input.reduced_motion;
+        self.rings_up = true;
+        let mut animating = self.resets.animating();
+        let mut shown = rings.clone();
         for (i, view) in rings.iter().enumerate() {
+            let k = key_index(view.key);
+            let held = self.resets.held(k).cloned().unwrap_or_else(|| view.clone());
             let tweens = &mut self.rings[i];
-            tweens.update(view, input.t);
-            animating |= tweens.animating(input.t);
-            let col_rect = cols[i];
+            if entering {
+                tweens.enter(&held, t, i);
+            } else {
+                tweens.update(&held, t);
+            }
+            animating |= tweens.animating(t);
+            let frame = self.resets.frame(k, t);
             let col = Column {
-                view,
-                live: tweens.value(input.t),
-                frame: frames[i],
+                view: &held,
+                live: tweens.value(t),
+                frame: frame.as_ref(),
+                ok: self.resets.ok(k, t),
                 lang,
                 now: input.now,
                 tz: input.tz,
             };
-            rings::paint_column(p, col_rect, &col, fx);
+            rings::paint_column(p, cols[i], &col, fx);
             let name = match view.key {
                 LimitKey::Session => "ring_session",
                 LimitKey::Weekly => "ring_weekly",
             };
-            self.note(name, col_rect);
+            self.note(name, cols[i]);
+            #[cfg(test)]
+            {
+                self.debug_frames[i] = frame;
+            }
+            shown[i] = held;
         }
+        self.shown = Some(shown);
         if let Some(err) = error {
             let top = row_top + COLUMN_H + ROW_PAD_BOTTOM;
             let text = err_line(err.retry_at, input.now, lang);
@@ -330,6 +450,17 @@ impl Widget {
             self.note("err_foot", shown);
         }
         animating
+    }
+
+    /// The surprise glow, the pill and the sparks over the widget box `rect`.
+    fn paint_effects(&mut self, p: &Painter, rect: Rect, input: &FrameInput) {
+        let t = input.t;
+        sparks::paint_glow(p, rect, self.resets.glow_alpha(t));
+        if let Some((spec, frame)) = self.resets.pill(t) {
+            let r = pill::paint(p, rect, spec, &frame);
+            self.note("pill", r);
+        }
+        sparks::paint_sparks(p, rect, &self.resets.sparks(t));
     }
 }
 
@@ -361,22 +492,16 @@ pub(crate) mod snapshot_tests {
         }
     }
 
-    fn input<'a>(
-        state: &'a AppState,
-        prefs: &'a Prefs,
-        t: f64,
-        focused: bool,
-        offset_y: f32,
-    ) -> FrameInput<'a> {
+    fn input(f: &Fixture) -> FrameInput<'_> {
         FrameInput {
-            state,
-            prefs,
+            state: &f.state,
+            prefs: &f.prefs,
             now: now(),
             tz: fixtures::tz(),
-            t,
-            reduced_motion: false,
-            offset_y,
-            focused,
+            t: f.t,
+            reduced_motion: f.reduced,
+            offset_y: f.offset_y,
+            focused: f.focused,
         }
     }
 
@@ -391,19 +516,28 @@ pub(crate) mod snapshot_tests {
         pub focused: bool,
         /// Points the widget sits below the window top (window grown upward).
         pub offset_y: f32,
+        /// Windows "Show animations" is off.
+        pub reduced: bool,
     }
 
     /// Paints the backdrop and the widget, settled, into a pass of `ctx`.
     pub(crate) fn frame(ctx: &egui::Context, f: &mut Fixture) {
         ctx.layer_painter(LayerId::background())
             .rect_filled(ctx.content_rect(), 0, BACKDROP);
-        let out = f
-            .widget
-            .show(ctx, &input(&f.state, &f.prefs, f.t, f.focused, f.offset_y));
-        f.out = Some(out);
+        let mut widget = std::mem::take(&mut f.widget);
+        f.out = Some(widget.show(ctx, &input(f)));
+        f.widget = widget;
     }
 
+    /// The widget showing `kind` as if it had been on screen for a while (no entrance).
     pub(crate) fn fixture(kind: &str, lang: Lang) -> Fixture {
+        let mut f = fixture_live(kind, lang);
+        f.widget.skip_entrance();
+        f
+    }
+
+    /// The widget showing `kind` for the first time: the rings play their entrance.
+    pub(crate) fn fixture_live(kind: &str, lang: Lang) -> Fixture {
         Fixture {
             widget: Widget::new(),
             state: fixtures::scenario(kind, now()),
@@ -412,6 +546,7 @@ pub(crate) mod snapshot_tests {
             t: T_SETTLED,
             focused: true,
             offset_y: 0.0,
+            reduced: false,
         }
     }
 
@@ -801,5 +936,370 @@ pub(crate) mod snapshot_tests {
         h.set_size(size);
         h.run();
         h.snapshot("connected_no_rings_error_en");
+    }
+
+    // ---- reset animations, entrance and repaint policy (Task 13) ----
+
+    use crate::anim::{
+        surprise_frame, PLANNED_END, PLANNED_PILL_AT, SURPRISE_END, SURPRISE_PILL_AT,
+    };
+    use crate::ui::resets::Resets;
+
+    /// A widget driven pass by pass on a plain context (no renderer).
+    pub(crate) struct Run {
+        ctx: egui::Context,
+        pub f: Fixture,
+    }
+
+    impl Run {
+        pub(crate) fn new(f: Fixture) -> Run {
+            let ctx = egui::Context::default();
+            fonts::install(&ctx);
+            let mut r = Run { ctx, f };
+            r.frame();
+            r
+        }
+
+        /// One pass at the fixture's current clock.
+        pub(crate) fn frame(&mut self) -> &FrameOutput {
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(244.0, 400.0))),
+                ..Default::default()
+            };
+            let f = &mut self.f;
+            let mut out = self.ctx.run_pass(raw, |ctx| frame(ctx, f));
+            out.textures_delta.clear();
+            self.f.out.as_ref().expect("shown")
+        }
+
+        /// One pass at animation clock `t`.
+        pub(crate) fn at(&mut self, t: f64) -> &FrameOutput {
+            self.f.t = t;
+            self.frame()
+        }
+
+        /// Frames every 50 ms from the current clock to `t`, then one at `t`.
+        pub(crate) fn play_to(&mut self, t: f64) {
+            while self.f.t + 0.05 < t {
+                let next = self.f.t + 0.05;
+                self.at(next);
+            }
+            self.at(t);
+        }
+
+        /// Applies reset `kind` (sequence `seq`) to the current state and shows a frame.
+        pub(crate) fn reset(&mut self, kind: &str, seq: u64) {
+            self.f.state = fixtures::reset_state(&self.f.state, kind, seq, now());
+            self.frame();
+        }
+
+        pub(crate) fn resets(&self) -> &Resets {
+            self.f.widget.debug_resets()
+        }
+    }
+
+    /// A settled `connected` widget, then reset `kind` at `T_SETTLED`.
+    fn reset_run_at(kind: &str, reduced: bool) -> Run {
+        let mut f = fixture("connected", Lang::En);
+        f.reduced = reduced;
+        let mut r = Run::new(f);
+        r.reset(kind, 1);
+        r
+    }
+
+    /// Reset `kind` played to its end, frame by frame.
+    fn reset_run(kind: &str) -> Run {
+        let mut r = reset_run_at(kind, false);
+        r.play_to(T_SETTLED + 5.0);
+        r
+    }
+
+    fn pill_shows(r: &Run) -> usize {
+        r.resets().pill_shows()
+    }
+
+    #[test]
+    fn policy() {
+        assert_eq!(repaint_policy(false, false, false, false), Repaint::Idle);
+        assert_eq!(
+            repaint_policy(false, false, true, false),
+            Repaint::After(Duration::from_secs(1))
+        );
+        assert_eq!(
+            repaint_policy(false, false, false, true),
+            Repaint::After(Duration::from_secs(1))
+        );
+        assert_eq!(repaint_policy(true, false, true, false), Repaint::Now);
+        assert_eq!(repaint_policy(false, true, true, true), Repaint::Now);
+    }
+
+    #[test]
+    fn countdowns_repaint_every_second() {
+        assert_eq!(
+            show("error").repaint,
+            Repaint::After(Duration::from_secs(1))
+        );
+        let mut f = fixture("error", Lang::En);
+        f.state.rings = None;
+        let mut r = Run::new(f);
+        assert_eq!(r.frame().repaint, Repaint::After(Duration::from_secs(1)));
+        assert_eq!(show("connected").repaint, Repaint::Idle);
+    }
+
+    #[test]
+    fn settles_to_no_repaint() {
+        let mut r = Run::new(fixture_live("connected", Lang::En));
+        assert_eq!(r.at(T_SETTLED + 0.4).repaint, Repaint::Now);
+        r.play_to(T_SETTLED + 2.0);
+        assert_eq!(r.frame().repaint, Repaint::Idle);
+    }
+
+    #[test]
+    fn entrance_grows_the_arcs_and_turns_the_tick_in() {
+        let mut r = Run::new(fixture_live("connected", Lang::En));
+        r.at(T_SETTLED + 0.4);
+        let live = r.f.widget.debug_live();
+        assert!(
+            live[0].arc_fraction > 0.05 && live[0].arc_fraction < 0.62,
+            "{live:?}"
+        );
+        assert!(live[0].tick_deg > 0.0 && live[0].tick_deg < 48.0 * 3.6);
+        r.at(T_SETTLED + 2.0);
+        let live = r.f.widget.debug_live();
+        assert_eq!((live[0].arc_fraction, live[1].arc_fraction), (0.62, 0.34));
+        // Reduced motion: no entrance.
+        let mut f = fixture_live("connected", Lang::En);
+        f.reduced = true;
+        let r = Run::new(f);
+        assert_eq!(r.f.widget.debug_live()[0].arc_fraction, 0.62);
+        // A reconnect plays it again.
+        let mut r = Run::new(fixture("connected", Lang::En));
+        let rings = r.f.state.clone();
+        r.f.state = fixtures::scenario("disconnected", now());
+        r.frame();
+        r.f.state = rings;
+        r.at(T_SETTLED + 0.1);
+        assert!(r.f.widget.debug_live()[0].arc_fraction < 0.1);
+    }
+
+    #[test]
+    fn held_view_until_release() {
+        let mut r = Run::new(fixture("connected", Lang::En));
+        let old = r.f.state.rings.as_ref().unwrap()[0].resets_at;
+        r.reset("planned", 1);
+        let new = r.f.state.rings.as_ref().unwrap()[0].resets_at;
+        assert_ne!(old, new);
+        r.play_to(T_SETTLED + 1.0);
+        assert_eq!(r.f.widget.debug_views().unwrap()[0].resets_at, old);
+        assert_eq!(r.resets().locks(), [Some(1), None]);
+        r.play_to(T_SETTLED + 2.2);
+        assert_eq!(r.f.widget.debug_views().unwrap()[0].resets_at, new);
+        assert_eq!(r.resets().locks(), [None, None]);
+        // Handed over from empty and green: the arc and colors tween to the live values.
+        let live = r.f.widget.debug_live()[0];
+        assert!(live.arc_fraction < 0.01, "{live:?}");
+        assert_ne!(live.num_color, colors::BLUE);
+    }
+
+    #[test]
+    fn pill_only_once_per_batch() {
+        assert_eq!(pill_shows(&reset_run("both")), 1);
+        assert_eq!(pill_shows(&reset_run("bothPlanned")), 1);
+        assert_eq!(pill_shows(&reset_run("planned")), 1);
+    }
+
+    #[test]
+    fn pill_waits_for_its_moment() {
+        let mut r = reset_run_at("planned", false);
+        r.play_to(T_SETTLED + (PLANNED_PILL_AT - 10.0) / 1000.0);
+        assert_eq!(pill_shows(&r), 0);
+        r.play_to(T_SETTLED + (PLANNED_PILL_AT + 10.0) / 1000.0);
+        assert_eq!(pill_shows(&r), 1);
+        let mut r = reset_run_at("surprise", false);
+        r.play_to(T_SETTLED + (SURPRISE_PILL_AT + 10.0) / 1000.0);
+        assert_eq!(pill_shows(&r), 1);
+    }
+
+    #[test]
+    fn newer_batch_takes_over_ring() {
+        let mut r = reset_run_at("planned", false);
+        let held_num = 62;
+        r.play_to(T_SETTLED + 0.5);
+        r.f.state = fixtures::reset_state(&r.f.state, "surprise", 2, now());
+        let from_used = r.f.state.resets[0].from_used;
+        r.frame();
+        assert_eq!(r.resets().locks(), [Some(2), None]);
+        r.play_to(T_SETTLED + 1.0);
+        assert_eq!(
+            r.f.widget.debug_frames()[0],
+            Some(surprise_frame(500.0, from_used, held_num))
+        );
+        // Batch 1 would have released the ring at 2.15 s: the ring stays with batch 2.
+        r.play_to(T_SETTLED + (PLANNED_END + 50.0) / 1000.0);
+        assert_eq!(r.resets().locks(), [Some(2), None]);
+        assert!(r.f.widget.debug_frames()[0].is_some());
+        r.play_to(T_SETTLED + 0.5 + (SURPRISE_END + 10.0) / 1000.0);
+        assert_eq!(r.resets().locks(), [None, None]);
+        assert!(r.f.widget.debug_frames()[0].is_none());
+        // One pill for each batch that reached its moment while owning a ring.
+        assert_eq!(pill_shows(&r), 1);
+    }
+
+    #[test]
+    fn stalled_lock_released_by_safety() {
+        let mut r = reset_run_at("surprise", false);
+        assert_eq!(r.resets().locks(), [Some(1), None]);
+        assert_eq!(pill_shows(&r), 0);
+        r.at(T_SETTLED + 5.0);
+        assert_eq!(r.resets().locks(), [None, None]);
+        assert_eq!(pill_shows(&r), 1);
+        assert!(r.f.widget.debug_frames()[0].is_none());
+    }
+
+    #[test]
+    fn disconnect_mid_surprise_clears_effects() {
+        let mut r = reset_run_at("surprise", false);
+        r.at(T_SETTLED + 0.45);
+        let t = r.f.t;
+        assert!(r.resets().glow_alpha(t) > 0.0);
+        assert!(!r.resets().sparks(t).is_empty());
+        r.f.state = fixtures::scenario("disconnected", now());
+        r.at(T_SETTLED + 0.5);
+        let t = r.f.t;
+        assert_eq!(r.resets().locks(), [None, None]);
+        assert_eq!(r.resets().glow_alpha(t), 0.0);
+        assert!(r.resets().sparks(t).is_empty());
+        assert!(r.resets().pill(t).is_none());
+        assert_eq!(r.frame().repaint, Repaint::Idle);
+        // Nothing comes back with the rings, past the pill moment.
+        r.f.state = fixtures::scenario("connected", now());
+        r.at(T_SETTLED + 1.0);
+        let t = r.f.t;
+        assert_eq!(pill_shows(&r), 0);
+        assert!(r.resets().pill(t).is_none());
+        assert_eq!(r.resets().glow_alpha(t), 0.0);
+    }
+
+    #[test]
+    fn reduced_motion_crossfades() {
+        let mut r = reset_run_at("surprise", true);
+        r.at(T_SETTLED + 0.1);
+        let t = r.f.t;
+        assert!(r.resets().sparks(t).is_empty());
+        assert_eq!(r.resets().glow_alpha(t), 0.0);
+        let f = r.f.widget.debug_frames()[0].clone().unwrap();
+        assert_eq!((f.num, f.arc_fraction, f.num_blur), (62, 0.0, 0.0));
+        r.at(T_SETTLED + 0.2);
+        assert_eq!(r.f.widget.debug_frames()[0].as_ref().unwrap().num, 0);
+        assert_eq!(pill_shows(&r), 1);
+        r.at(T_SETTLED + 0.45);
+        assert_eq!(r.resets().locks(), [Some(1), None]);
+        assert!(r.resets().sparks(r.f.t).is_empty());
+        r.at(T_SETTLED + 0.5);
+        assert_eq!(r.resets().locks(), [None, None]);
+    }
+
+    #[test]
+    fn planned_check_outlives_the_lock() {
+        let mut r = reset_run_at("planned", false);
+        r.play_to(T_SETTLED + 3.0);
+        assert_eq!(r.resets().locks(), [None, None]);
+        assert!(r.resets().ok(0, r.f.t).is_some_and(|(a, _)| a > 0.5));
+        assert_eq!(r.frame().repaint, Repaint::Now);
+        r.play_to(T_SETTLED + 5.0);
+        assert!(r.resets().ok(0, r.f.t).is_none());
+        assert_eq!(r.frame().repaint, Repaint::Idle);
+    }
+
+    #[test]
+    fn mount_with_a_reset_seq_plays_nothing() {
+        let mut f = fixture("connected", Lang::En);
+        f.state = fixtures::reset_state(&f.state, "surprise", 4, now());
+        let r = Run::new(f);
+        assert_eq!(r.resets().locks(), [None, None]);
+        assert_eq!(r.f.out.as_ref().unwrap().repaint, Repaint::Idle);
+    }
+
+    #[test]
+    fn sparks_stay_inside_the_rounded_box() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), rings_size(false));
+        // A spark in the top-left corner, off the rounded glass, is culled.
+        assert_eq!(sparks::coverage(rect, pos2(1.0, 1.0), 2.5), 0.0);
+        assert_eq!(sparks::coverage(rect, rect.center(), 2.5), 1.0);
+        let c = sparks::coverage(rect, pos2(rect.center().x, 0.5), 2.5);
+        assert!(c > 0.0 && c < 1.0, "{c}");
+    }
+
+    #[test]
+    fn long_french_pill_shrinks_to_fit() {
+        // "✓ Nouvelle semaine · limite hebdo remise à zéro" is wider than the widget at 10 px.
+        let mut r = Run::new(fixture("connected", Lang::Fr));
+        r.reset("plannedWeekly", 1);
+        r.play_to(T_SETTLED + 2.5);
+        let pill = r.f.widget.debug_rects()["pill"];
+        // 1 px border + 4 px side margin on each side of the 244 px box.
+        assert!(pill.left() >= 4.99 && pill.right() <= 239.01, "{pill:?}");
+        assert!(pill.height() < 10.0 * 1.2 + 8.0, "font shrunk: {pill:?}");
+        // The English one fits at 10 px.
+        let mut r = Run::new(fixture("connected", Lang::En));
+        r.reset("plannedWeekly", 1);
+        r.play_to(T_SETTLED + 2.5);
+        let pill = r.f.widget.debug_rects()["pill"];
+        assert!(
+            (pill.height() - (10.0 * 1.2 + 8.0)).abs() < 0.01,
+            "{pill:?}"
+        );
+    }
+
+    fn snap_reset(kind: &str, lang: Lang, ms: f64, name: &str) {
+        let mut h = render("connected", lang, 1.0);
+        let next = fixtures::reset_state(&h.state().state, kind, 1, now());
+        h.state_mut().state = next;
+        h.run();
+        h.state_mut().t = T_SETTLED + ms / 1000.0;
+        h.run();
+        h.snapshot(name);
+    }
+
+    #[test]
+    fn planned_t300_en() {
+        snap_reset("planned", Lang::En, 300.0, "planned_t300_en");
+    }
+    #[test]
+    fn planned_t900_en() {
+        snap_reset("planned", Lang::En, 900.0, "planned_t900_en");
+    }
+    #[test]
+    fn planned_t1600_en() {
+        snap_reset("planned", Lang::En, 1600.0, "planned_t1600_en");
+    }
+    #[test]
+    fn surprise_t200_en() {
+        snap_reset("surprise", Lang::En, 200.0, "surprise_t200_en");
+    }
+    #[test]
+    fn surprise_t500_en() {
+        snap_reset("surprise", Lang::En, 500.0, "surprise_t500_en");
+    }
+    #[test]
+    fn surprise_t1500_fr() {
+        snap_reset("surprise", Lang::Fr, 1500.0, "surprise_t1500_fr");
+    }
+    #[test]
+    fn entrance_t400_en() {
+        let mut h = Harness::builder()
+            .with_size(vec2(244.0, 146.0))
+            .with_render_cursor(false)
+            .with_context_setup(fonts::install)
+            .build_ui_state(
+                |ui, f: &mut Fixture| frame(ui.ctx(), f),
+                fixture_live("connected", Lang::En),
+            );
+        let size = h.state().out.as_ref().expect("shown").size;
+        h.set_size(size);
+        h.run();
+        h.state_mut().t = T_SETTLED + 0.4;
+        h.run();
+        h.snapshot("entrance_t400_en");
     }
 }

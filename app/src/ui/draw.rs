@@ -222,12 +222,18 @@ pub fn gradient_button(p: &Painter, rect: Rect, radius: f32, top: Color32, botto
 
 /// CSS `box-shadow: 0 <offset_y> <blur> color` of a rounded rect (drawn under it).
 pub fn soft_shadow(p: &Painter, rect: Rect, radius: f32, offset_y: f32, blur: f32, color: Color32) {
-    let rect = rect.translate(vec2(0.0, offset_y));
     if blur <= 0.0 {
+        let rect = rect.translate(vec2(0.0, offset_y));
         p.rect_filled(rect, CornerRadius::same(radius.round() as u8), color);
         return;
     }
-    let sigma = blur / 2.0;
+    p.add(soft_shadow_mesh(rect, radius, offset_y, blur, color));
+}
+
+/// The mesh of [`soft_shadow`] for a `blur > 0`.
+pub fn soft_shadow_mesh(rect: Rect, radius: f32, offset_y: f32, blur: f32, color: Color32) -> Mesh {
+    let rect = rect.translate(vec2(0.0, offset_y));
+    let sigma = blur.max(f32::EPSILON) / 2.0;
     let depth = 3.0 * sigma;
     let stops: Vec<(f32, f32)> = (0..=2 * BAND_STEPS)
         .map(|k| {
@@ -235,7 +241,25 @@ pub fn soft_shadow(p: &Painter, rect: Rect, radius: f32, offset_y: f32, blur: f3
             (d, blurred_edge(d, sigma))
         })
         .collect();
-    p.add(band_mesh(rect, radius, &stops, true, |_| color));
+    band_mesh(rect, radius, &stops, true, |_| color)
+}
+
+/// Signed distance from `q` to the rounded rect `r`/`radius` (negative inside).
+pub(crate) fn rrect_sdf(r: Rect, radius: f32, q: Pos2) -> f32 {
+    let half = r.size() / 2.0 - Vec2::splat(radius);
+    let d = (q - r.center()).abs() - half;
+    vec2(d.x.max(0.0), d.y.max(0.0)).length() + d.x.max(d.y).min(0.0) - radius
+}
+
+/// Keeps `mesh` inside the rounded rect `clip`/`radius` (egui clips to plain rects only):
+/// every vertex fades out over `px` past the rounded edge.
+pub fn fade_outside(mesh: &mut Mesh, clip: Rect, radius: f32, px: f32) {
+    for v in &mut mesh.vertices {
+        let d = rrect_sdf(clip, radius, v.pos);
+        if d > 0.0 {
+            v.color = scale(v.color, 1.0 - d / px.max(f32::EPSILON));
+        }
+    }
 }
 
 /// A round-capped arc of the circle (`center`, `r`), `width` wide, from

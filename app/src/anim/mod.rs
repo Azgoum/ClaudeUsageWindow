@@ -10,7 +10,7 @@ pub mod surprise;
 pub mod track;
 pub mod tween;
 
-pub use entrance::{entrance_fraction, refresh_press, REFRESH_END, REFRESH_SEND_AT};
+pub use entrance::{entrance_end, entrance_fraction, refresh_press, REFRESH_END, REFRESH_SEND_AT};
 pub use pill::{pill_frame, PillFrame};
 pub use planned::{
     crossfade_frame, planned_frame, RingFrame, CROSSFADE_END, CROSSFADE_PILL_AT, OK_END,

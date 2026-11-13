@@ -13,6 +13,11 @@ pub fn entrance_fraction(ms: f64, index: usize, target: f32) -> f32 {
     t.sample(ms)
 }
 
+/// When the entrance of the ring at `index` is over, ms after the rings appeared.
+pub fn entrance_end(index: usize) -> f64 {
+    ENTER_MS + index as f64 * ENTER_STAGGER_MS
+}
+
 /// The request goes out while the icon is still turning.
 pub const REFRESH_SEND_AT: f64 = 350.0;
 pub const REFRESH_END: f64 = 900.0;
@@ -42,6 +47,7 @@ mod tests {
         assert_eq!(entrance_fraction(1290.0, 1, 0.34), 0.34);
         assert!(entrance_fraction(500.0, 1, 0.34) > 0.0);
         assert!(entrance_fraction(1000.0, 0, 0.5) > 0.4);
+        assert_eq!(entrance_end(1), 1290.0);
     }
 
     #[test]

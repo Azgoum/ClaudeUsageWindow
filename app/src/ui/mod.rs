@@ -10,9 +10,12 @@ pub mod i18n;
 pub mod input;
 pub mod menu;
 pub mod menu_view;
+pub mod pill;
+pub mod resets;
 pub mod ring;
 pub mod rings;
 pub mod room;
+pub mod sparks;
 pub mod tooltip;
 pub mod widget;
 

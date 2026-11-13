@@ -12,11 +12,13 @@ use limits_core::{LimitKey, RingView};
 
 use super::format::reset_line;
 use super::i18n::t;
-use super::ring::{arc_fraction, arc_stroke, num_fill, ring_number, tick_angle_deg, tick_opacity};
+use super::ring::{
+    arc_fraction, arc_stroke, num_fill, ring_number, tick_angle_deg, tick_opacity, CIRC,
+};
 use super::{colors, draw, fonts, Lang};
 use crate::anim::easing::{EASE_CSS, EASE_RING};
 use crate::anim::tween::Tween;
-use crate::anim::RingFrame;
+use crate::anim::{entrance_end, entrance_fraction, RingFrame};
 
 /// `.wd .rg { width: 104px }`.
 pub const COLUMN_W: f32 = 104.0;
@@ -47,6 +49,10 @@ const PCT_DX: f32 = 1.0;
 const NUM_BASELINE: f32 = 36.5;
 const INF_SIZE: f32 = 24.0;
 const INF_BASELINE: f32 = 39.0;
+/// Planned glint: `stroke-dasharray: 9 CIRC`.
+const GLINT_LEN: f32 = 9.0;
+/// `.rg .ok { margin-left: 3px }`.
+const OK_GAP: f32 = 3.0;
 
 /// CSS transitions: arc and tick 0.8 s ring ease, colors 0.4 s, tick opacity 0.3 s.
 const ARC_DUR: f64 = 0.8;
@@ -84,6 +90,8 @@ pub struct RingTweens {
     arc_color: Tween<Color32>,
     num_color: Tween<Color32>,
     target: Option<Live>,
+    /// The entrance: animation clock it started at and the ring's place in the row.
+    entrance: Option<(f64, usize)>,
 }
 
 impl Default for RingTweens {
@@ -101,7 +109,37 @@ impl RingTweens {
             arc_color: Tween::new(Color32::TRANSPARENT),
             num_color: Tween::new(Color32::TRANSPARENT),
             target: None,
+            entrance: None,
         }
+    }
+
+    /// The rings just appeared: `view` shows at once except the arc, which grows from empty
+    /// (`entrance_fraction`, staggered by `index`), and the tick, which turns in from 0°.
+    pub fn enter(&mut self, view: &RingView, t: f64, index: usize) {
+        self.target = None;
+        self.update(view, t);
+        self.tick_deg.snap(0.0);
+        self.tick_deg
+            .retarget(t, tick_angle_deg(view.expected), ARC_DUR, EASE_RING);
+        self.entrance = Some((t, index));
+    }
+
+    /// A reset animation released the ring showing `from`: the next `update` eases from there.
+    pub fn hand_over(&mut self, from: Live) {
+        self.arc.snap(from.arc_fraction);
+        self.tick_deg.snap(from.tick_deg);
+        self.tick_alpha.snap(from.tick_alpha);
+        self.arc_color.snap(from.arc_color);
+        self.num_color.snap(from.num_color);
+        self.target = Some(from);
+        self.entrance = None;
+    }
+
+    /// ms into the entrance at `t`, while it plays.
+    fn entering(&self, t: f64) -> Option<(f64, usize)> {
+        let (t0, index) = self.entrance?;
+        let ms = (t - t0) * 1000.0;
+        (ms < entrance_end(index)).then_some((ms.max(0.0), index))
     }
 
     /// Heads to `view`'s values at `t`; each property restarts only when its own target changes.
@@ -142,11 +180,16 @@ impl RingTweens {
     /// The rings went away: the next view shows at once.
     pub fn reset(&mut self) {
         self.target = None;
+        self.entrance = None;
     }
 
     pub fn value(&self, t: f64) -> Live {
+        let arc = self.arc.value(t);
         Live {
-            arc_fraction: self.arc.value(t),
+            arc_fraction: match self.entering(t) {
+                Some((ms, index)) => entrance_fraction(ms, index, arc),
+                None => arc,
+            },
             tick_deg: self.tick_deg.value(t),
             tick_alpha: self.tick_alpha.value(t),
             arc_color: self.arc_color.value(t),
@@ -155,11 +198,12 @@ impl RingTweens {
     }
 
     pub fn animating(&self, t: f64) -> bool {
-        !(self.arc.done(t)
-            && self.tick_deg.done(t)
-            && self.tick_alpha.done(t)
-            && self.arc_color.done(t)
-            && self.num_color.done(t))
+        self.entering(t).is_some()
+            || !(self.arc.done(t)
+                && self.tick_deg.done(t)
+                && self.tick_alpha.done(t)
+                && self.arc_color.done(t)
+                && self.num_color.done(t))
     }
 }
 
@@ -169,6 +213,8 @@ pub struct Column<'a> {
     pub live: Live,
     /// Reset animation frame overriding the live values (Task 13).
     pub frame: Option<&'a RingFrame>,
+    /// The ✓ after the name (alpha, scale) of a planned reset; it outlives the frame.
+    pub ok: Option<(f32, f32)>,
     pub lang: Lang,
     pub now: DateTime<Utc>,
     pub tz: FixedOffset,
@@ -301,15 +347,47 @@ pub fn paint_column(p: &Painter, rect: Rect, col: &Column, fx: &dyn Fn(Color32) 
         Some(f) => (f.arc_fraction, fade(f.arc_color, f.arc_alpha)),
         None => (col.live.arc_fraction, col.live.arc_color),
     };
+    let flash = col.frame.map_or(0.0, |f| f.arc_flash);
+    // Surprise flash: `brightness(1 → 1.9)` and a 6 px gold `drop-shadow` around the arc.
+    if flash > 0.0 && fraction > 0.0 {
+        for (extra, a) in [(12.0, 0.12), (6.0, 0.22)] {
+            p.add(draw::arc_mesh(
+                center,
+                R * scale,
+                (STROKE + extra) * scale,
+                0.0,
+                fraction,
+                fx(fade(colors::GOLD, a * flash)),
+                px,
+            ));
+        }
+    }
     p.add(draw::arc_mesh(
         center,
         R * scale,
         STROKE * scale,
         0.0,
         fraction,
-        fx(arc_color),
+        fx(brightness(arc_color, 1.0 + 0.9 * flash)),
         px,
     ));
+    // Planned glint: a 9 px white dash (round caps, blurred 1.5 px) running along the arc.
+    if let Some((pos, alpha)) = col.frame.and_then(|f| f.glint) {
+        let from = (pos - GLINT_LEN / CIRC).max(0.0);
+        if alpha > 0.0 && pos > from {
+            for (w, a) in [(STROKE + 2.0, 0.35), (STROKE, 0.75)] {
+                p.add(draw::arc_mesh(
+                    center,
+                    R * scale,
+                    w * scale,
+                    from,
+                    pos,
+                    fx(fade(Color32::WHITE, a * alpha)),
+                    px,
+                ));
+            }
+        }
+    }
 
     let tick_alpha = col.live.tick_alpha * col.frame.map_or(1.0, |f| f.tick_alpha);
     if tick_alpha > 0.0 {
@@ -336,14 +414,26 @@ pub fn paint_column(p: &Painter, rect: Rect, col: &Column, fx: &dyn Fn(Color32) 
     };
     let name_top = rect.top() + SVG + NAME_GAP;
     let cx = rect.center().x;
-    centered_line(
-        p,
-        name,
-        fonts::semibold(NAME_SIZE),
-        fx(colors::NAME),
-        cx,
-        name_top,
-    );
+    let g = line_galley(p, name, fonts::semibold(NAME_SIZE), fx(colors::NAME));
+    let name_right = cx + g.size().x / 2.0;
+    p.galley(pos2(cx - g.size().x / 2.0, name_top), g, fx(colors::NAME));
+    // `.ok`: out of flow 3 px after the name, bold, green; scaled about its own center.
+    if let Some((alpha, s)) = col.ok.filter(|(a, _)| *a > 0.0) {
+        let color = fx(fade(colors::GREEN, alpha));
+        let full = line_galley(p, "✓", fonts::bold(NAME_SIZE), color);
+        let box_center = pos2(
+            name_right + OK_GAP + full.size().x / 2.0,
+            name_top + full.size().y / 2.0,
+        );
+        let g = line_galley_in(
+            p,
+            "✓",
+            fonts::bold(NAME_SIZE * s),
+            color,
+            NAME_SIZE * LINE_HEIGHT * s,
+        );
+        p.galley(box_center - g.size() / 2.0, g, color);
+    }
     if !view.no_limit {
         let when = reset_line(view.key, view.resets_at, col.now, col.tz, col.lang);
         let when_top = name_top + NAME_SIZE * LINE_HEIGHT + WHEN_GAP;
@@ -375,6 +465,13 @@ fn paint_number(
     if color.a() == 0 {
         return;
     }
+    // egui cannot blur text: a blurred number is three copies, ±blur/3 apart, a third as opaque.
+    let blur = col.frame.map_or(0.0, |f| f.num_blur);
+    let (copies, color): (&[f32], Color32) = if blur > 0.0 {
+        (&[-1.0, 0.0, 1.0], fade(color, 1.0 / 3.0))
+    } else {
+        (&[0.0], color)
+    };
     let s = scale * num_scale;
     let (parts, base_y, size): (Vec<(String, f32)>, f32, f32) = if col.view.no_limit {
         (vec![("∞".into(), INF_SIZE)], INF_BASELINE, INF_SIZE)
@@ -396,13 +493,24 @@ fn paint_number(
         .collect();
     let gap = if galleys.len() > 1 { PCT_DX * s } else { 0.0 };
     let total: f32 = galleys.iter().map(|g| g.size().x).sum::<f32>() + gap;
-    let mut x = center.x - total / 2.0;
-    for g in galleys {
-        let w = g.size().x;
-        let top = base - baseline(&g);
-        p.galley(pos2(x, top), g, color);
-        x += w + gap;
+    for k in copies {
+        let mut x = center.x - total / 2.0 + k * blur / 3.0;
+        for g in &galleys {
+            let w = g.size().x;
+            let top = base - baseline(g);
+            p.galley(pos2(x, top), g.clone(), color);
+            x += w + gap;
+        }
     }
+}
+
+/// CSS `filter: brightness(k)` of a premultiplied color (channels clamp, alpha kept).
+fn brightness(c: Color32, k: f32) -> Color32 {
+    if k == 1.0 {
+        return c;
+    }
+    let f = |v: u8| (f32::from(v) * k).round().min(f32::from(c.a())) as u8;
+    Color32::from_rgba_premultiplied(f(c.r()), f(c.g()), f(c.b()), c.a())
 }
 
 #[cfg(test)]
