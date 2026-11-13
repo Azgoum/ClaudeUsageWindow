@@ -623,13 +623,25 @@ mod tests {
     #[test]
     fn autostart_managed_in_release_or_on_dev_opt_in() {
         let plain = DevEnv::default();
-        let opt_in = DevEnv { autostart: true, ..DevEnv::default() };
+        let opt_in = DevEnv {
+            autostart: true,
+            ..DevEnv::default()
+        };
         assert!(manages_autostart(false, &plain), "release");
-        assert!(manages_autostart(false, &opt_in), "release ignores the switch");
+        assert!(
+            manages_autostart(false, &opt_in),
+            "release ignores the switch"
+        );
         assert!(!manages_autostart(true, &plain), "plain debug run");
         assert!(manages_autostart(true, &opt_in), "debug run that opted in");
-        let isolated = DevEnv { fake_session: true, ..opt_in };
-        assert!(!manages_autostart(true, &isolated), "isolated dev runs never");
+        let isolated = DevEnv {
+            fake_session: true,
+            ..opt_in
+        };
+        assert!(
+            !manages_autostart(true, &isolated),
+            "isolated dev runs never"
+        );
     }
 
     #[test]

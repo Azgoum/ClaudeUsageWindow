@@ -70,7 +70,12 @@ pub fn parse_usage(body: &str) -> Result<Usage, ParseError> {
         .and_then(Value::as_array)
         .ok_or_else(|| ParseError::Shape("no five_hour, seven_day or limits".into()))?;
     let unscoped = |e: &&Value| e.get("scope").is_none_or(Value::is_null);
-    let kind = |e: &Value| e.get("kind").and_then(Value::as_str).unwrap_or("").to_owned();
+    let kind = |e: &Value| {
+        e.get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned()
+    };
 
     let session = limits.iter().filter(unscoped).find(|e| {
         let k = kind(e);
@@ -78,14 +83,23 @@ pub fn parse_usage(body: &str) -> Result<Usage, ParseError> {
             || k.starts_with("session")
             || k.starts_with("five_hour")
     });
-    let weekly = limits.iter().filter(unscoped).find(|e| kind(e) == "weekly_all");
+    let weekly = limits
+        .iter()
+        .filter(unscoped)
+        .find(|e| kind(e) == "weekly_all");
 
     if session.is_none() && weekly.is_none() {
-        return Err(ParseError::Shape("limits[] has no session or weekly entry".into()));
+        return Err(ParseError::Shape(
+            "limits[] has no session or weekly entry".into(),
+        ));
     }
     Ok(Usage {
-        session: session.map(|e| window_from(e, "percent")).unwrap_or_else(Window::idle),
-        weekly: weekly.map(|e| window_from(e, "percent")).unwrap_or_else(Window::idle),
+        session: session
+            .map(|e| window_from(e, "percent"))
+            .unwrap_or_else(Window::idle),
+        weekly: weekly
+            .map(|e| window_from(e, "percent"))
+            .unwrap_or_else(Window::idle),
     })
 }
 
@@ -98,11 +112,19 @@ pub fn parse_orgs(body: &str) -> Result<Vec<Org>, ParseError> {
         .iter()
         .filter_map(|o| {
             let uuid = o.get("uuid")?.as_str()?.to_owned();
-            let name = o.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
+            let name = o
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned();
             let capabilities: Vec<String> = o
                 .get("capabilities")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|c| c.as_str().map(str::to_owned)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|c| c.as_str().map(str::to_owned))
+                        .collect()
+                })
                 .unwrap_or_default();
             let tier = o.get("rate_limit_tier").and_then(Value::as_str);
             let plan = tier.and_then(Plan::from_tier);
@@ -113,7 +135,12 @@ pub fn parse_orgs(body: &str) -> Result<Vec<Org>, ParseError> {
                     tracing::info!(tier, "unrecognised rate_limit_tier; showing the org name");
                 }
             }
-            Some(Org { uuid, name, capabilities, plan })
+            Some(Org {
+                uuid,
+                name,
+                capabilities,
+                plan,
+            })
         })
         .collect())
 }
@@ -170,10 +197,12 @@ mod tests {
         s.parse().unwrap()
     }
     fn reset_of(s: &str) -> Option<DateTime<Utc>> {
-        parse_usage(&format!(r#"{{"five_hour":null,"seven_day":{{"utilization":1,"resets_at":"{s}"}}}}"#))
-            .unwrap()
-            .weekly
-            .resets_at
+        parse_usage(&format!(
+            r#"{{"five_hour":null,"seven_day":{{"utilization":1,"resets_at":"{s}"}}}}"#
+        ))
+        .unwrap()
+        .weekly
+        .resets_at
     }
     #[test]
     fn resets_at_rounds_to_nearest_minute() {
@@ -181,7 +210,10 @@ mod tests {
         assert_eq!(reset_of("2026-11-06T23:59:59.657790+00:00"), midnight);
         assert_eq!(reset_of("2026-11-07T00:00:00.400+00:00"), midnight);
         assert_eq!(reset_of("2026-11-07T00:00:29.999Z"), midnight);
-        assert_eq!(reset_of("2026-11-07T00:00:30Z"), Some(t("2026-11-07T00:01:00Z")));
+        assert_eq!(
+            reset_of("2026-11-07T00:00:30Z"),
+            Some(t("2026-11-07T00:01:00Z"))
+        );
         assert_eq!(reset_of("not a date"), None);
     }
     #[test]
@@ -199,7 +231,10 @@ mod tests {
                 {"uuid":"d","name":"D","capabilities":["chat"],"rate_limit_tier":null}]"#,
         )
         .unwrap();
-        assert_eq!(o.iter().map(|o| o.plan).collect::<Vec<_>>(), vec![Some(Plan::Ultra), None, None, None]);
+        assert_eq!(
+            o.iter().map(|o| o.plan).collect::<Vec<_>>(),
+            vec![Some(Plan::Ultra), None, None, None]
+        );
         let two = parse_orgs(ORGS_TWO).unwrap();
         assert_eq!(two[0].plan, Some(Plan::Max));
         assert_eq!(two[1].plan, None, "API tiers are not plans");
@@ -216,7 +251,10 @@ mod tests {
         assert_eq!(Plan::from_tier("default_claude_pro"), Some(Plan::Pro));
         assert_eq!(Plan::from_tier("default_claude_team"), Some(Plan::Team));
         assert_eq!(Plan::from_tier("raven"), Some(Plan::Team));
-        assert_eq!(Plan::from_tier("Default_Claude_Enterprise"), Some(Plan::Enterprise));
+        assert_eq!(
+            Plan::from_tier("Default_Claude_Enterprise"),
+            Some(Plan::Enterprise)
+        );
         assert_eq!(Plan::from_tier("default_claude_ai"), None);
         assert_eq!(Plan::from_tier("auto_prepaid_tier_0"), None);
         assert_eq!(Plan::from_tier(""), None);
@@ -225,7 +263,10 @@ mod tests {
     fn both_active_parses_session() {
         let u = parse_usage(BOTH_ACTIVE).unwrap();
         assert_eq!(u.session.used, 62.0);
-        assert_eq!(u.session.resets_at.unwrap().to_rfc3339(), "2026-11-03T13:00:00+00:00");
+        assert_eq!(
+            u.session.resets_at.unwrap().to_rfc3339(),
+            "2026-11-03T13:00:00+00:00"
+        );
     }
     #[test]
     fn null_session_fixture_is_idle_session() {

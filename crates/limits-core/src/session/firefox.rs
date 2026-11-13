@@ -27,7 +27,11 @@ pub fn profile_dirs(root: &Path) -> Vec<PathBuf> {
     let mut relative = true;
     let flush = |path: &mut Option<String>, relative: &mut bool, out: &mut Vec<PathBuf>| {
         if let Some(p) = path.take() {
-            out.push(if *relative { root.join(p) } else { PathBuf::from(p) });
+            out.push(if *relative {
+                root.join(p)
+            } else {
+                PathBuf::from(p)
+            });
         }
         *relative = true;
     };
@@ -50,9 +54,12 @@ pub fn profile_dirs(root: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// A profile's `sessionKey` `lastAccessed` and its Claude cookies (name, value).
+type ProfileCookies = (i64, Vec<(String, String)>);
+
 /// Claude cookies of one profile (deduped by name, greatest `lastAccessed` wins) plus the
 /// `lastAccessed` of its `sessionKey` row.
-fn read_profile(dir: &Path) -> anyhow::Result<Option<(i64, Vec<(String, String)>)>> {
+fn read_profile(dir: &Path) -> anyhow::Result<Option<ProfileCookies>> {
     let db = dir.join("cookies.sqlite");
     if !db.exists() {
         return Ok(None);
@@ -70,7 +77,11 @@ fn read_profile(dir: &Path) -> anyhow::Result<Option<(i64, Vec<(String, String)>
         "SELECT name, value, lastAccessed FROM moz_cookies WHERE host IN ('claude.ai','.claude.ai')",
     )?;
     let rows = stmt.query_map([], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<i64>>(2)?.unwrap_or(0)))
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<i64>>(2)?.unwrap_or(0),
+        ))
     })?;
     let mut best: Vec<(String, String, i64)> = Vec::new();
     for row in rows {
@@ -81,23 +92,28 @@ fn read_profile(dir: &Path) -> anyhow::Result<Option<(i64, Vec<(String, String)>
             None => best.push((n, v, l)),
         }
     }
-    let session = best.iter().find(|(n, v, _)| n == "sessionKey" && !v.is_empty()).map(|e| e.2);
+    let session = best
+        .iter()
+        .find(|(n, v, _)| n == "sessionKey" && !v.is_empty())
+        .map(|e| e.2);
     drop(stmt);
     Ok(session.map(|s| (s, best.into_iter().map(|(n, v, _)| (n, v)).collect())))
 }
 
 impl SessionSource for FirefoxSource {
     fn read(&self) -> anyhow::Result<Option<SessionCookies>> {
-        let mut winner: Option<(i64, Vec<(String, String)>)> = None;
+        let mut winner: Option<ProfileCookies> = None;
         for dir in profile_dirs(&self.root) {
             match read_profile(&dir) {
                 Ok(Some((last, cookies))) => {
-                    if winner.as_ref().map_or(true, |(w, _)| last > *w) {
+                    if winner.as_ref().is_none_or(|(w, _)| last > *w) {
                         winner = Some((last, cookies));
                     }
                 }
                 Ok(None) => {}
-                Err(_) => tracing::warn!(path = %dir.display(), "skipping unreadable Firefox profile cookies"),
+                Err(_) => {
+                    tracing::warn!(path = %dir.display(), "skipping unreadable Firefox profile cookies")
+                }
             }
         }
         Ok(winner.map(|(_, cookies)| SessionCookies { cookies }))
@@ -141,7 +157,10 @@ mod tests {
     }
 
     fn get<'a>(c: &'a SessionCookies, name: &str) -> Option<&'a str> {
-        c.cookies.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
+        c.cookies
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
     }
 
     #[test]
@@ -149,9 +168,18 @@ mod tests {
         let root = TempDir::new().unwrap();
         let abs = TempDir::new().unwrap();
         let abs_str = abs.path().to_string_lossy().to_string();
-        write_ini(root.path(), &[("Profiles/abc.default", true), (&abs_str, false)]);
+        write_ini(
+            root.path(),
+            &[("Profiles/abc.default", true), (&abs_str, false)],
+        );
         let dirs = profile_dirs(root.path());
-        assert_eq!(dirs, vec![root.path().join("Profiles/abc.default"), abs.path().to_path_buf()]);
+        assert_eq!(
+            dirs,
+            vec![
+                root.path().join("Profiles/abc.default"),
+                abs.path().to_path_buf()
+            ]
+        );
     }
 
     #[test]
@@ -166,7 +194,10 @@ mod tests {
                 ("tracker", "t", ".example.com", 10),
             ],
         );
-        let c = FirefoxSource::new(root.path().to_path_buf()).read().unwrap().unwrap();
+        let c = FirefoxSource::new(root.path().to_path_buf())
+            .read()
+            .unwrap()
+            .unwrap();
         assert!(c.has_session());
         assert_eq!(c.last_active_org(), Some("org1"));
         assert_eq!(c.cookies.len(), 2);
@@ -176,10 +207,22 @@ mod tests {
     #[test]
     fn picks_profile_with_most_recent_session() {
         let root = TempDir::new().unwrap();
-        write_ini(root.path(), &[("Profiles/old", true), ("Profiles/new", true)]);
-        make_db(&root.path().join("Profiles/old"), &[("sessionKey", "OLD", ".claude.ai", 100)]);
-        make_db(&root.path().join("Profiles/new"), &[("sessionKey", "NEW", ".claude.ai", 200)]);
-        let c = FirefoxSource::new(root.path().to_path_buf()).read().unwrap().unwrap();
+        write_ini(
+            root.path(),
+            &[("Profiles/old", true), ("Profiles/new", true)],
+        );
+        make_db(
+            &root.path().join("Profiles/old"),
+            &[("sessionKey", "OLD", ".claude.ai", 100)],
+        );
+        make_db(
+            &root.path().join("Profiles/new"),
+            &[("sessionKey", "NEW", ".claude.ai", 200)],
+        );
+        let c = FirefoxSource::new(root.path().to_path_buf())
+            .read()
+            .unwrap()
+            .unwrap();
         assert_eq!(get(&c, "sessionKey"), Some("NEW"));
     }
 
@@ -187,8 +230,14 @@ mod tests {
     fn no_session_returns_none() {
         let root = TempDir::new().unwrap();
         write_ini(root.path(), &[("Profiles/a", true)]);
-        make_db(&root.path().join("Profiles/a"), &[("lastActiveOrg", "o", ".claude.ai", 5)]);
-        assert!(FirefoxSource::new(root.path().to_path_buf()).read().unwrap().is_none());
+        make_db(
+            &root.path().join("Profiles/a"),
+            &[("lastActiveOrg", "o", ".claude.ai", 5)],
+        );
+        assert!(FirefoxSource::new(root.path().to_path_buf())
+            .read()
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -209,7 +258,10 @@ mod tests {
                 ("sessionKey", "fresh", "claude.ai", 9),
             ],
         );
-        let c = FirefoxSource::new(root.path().to_path_buf()).read().unwrap().unwrap();
+        let c = FirefoxSource::new(root.path().to_path_buf())
+            .read()
+            .unwrap()
+            .unwrap();
         assert_eq!(c.cookies.len(), 1);
         assert_eq!(get(&c, "sessionKey"), Some("fresh"));
     }
@@ -221,13 +273,18 @@ mod tests {
         let dir = root.path().join("Profiles/a");
         std::fs::create_dir_all(&dir).unwrap();
         let conn = Connection::open(dir.join("cookies.sqlite")).unwrap();
-        conn.query_row("PRAGMA journal_mode=WAL", [], |_| Ok(())).unwrap();
-        conn.query_row("PRAGMA wal_autocheckpoint=0", [], |_| Ok(())).unwrap();
+        conn.query_row("PRAGMA journal_mode=WAL", [], |_| Ok(()))
+            .unwrap();
+        conn.query_row("PRAGMA wal_autocheckpoint=0", [], |_| Ok(()))
+            .unwrap();
         conn.execute(SCHEMA, []).unwrap();
         insert(&conn, "sessionKey", "walval", ".claude.ai", 7);
         // `conn` stays open: Firefox holding the DB.
         assert!(dir.join("cookies.sqlite-wal").exists());
-        let c = FirefoxSource::new(root.path().to_path_buf()).read().unwrap().unwrap();
+        let c = FirefoxSource::new(root.path().to_path_buf())
+            .read()
+            .unwrap()
+            .unwrap();
         assert_eq!(get(&c, "sessionKey"), Some("walval"));
         drop(conn);
     }

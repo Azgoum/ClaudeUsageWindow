@@ -12,7 +12,10 @@ pub struct SessionCookies {
 
 impl SessionCookies {
     fn get(&self, name: &str) -> Option<&str> {
-        self.cookies.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
+        self.cookies
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
     }
 
     /// `Cookie` header value: `a=1; b=2`.
@@ -43,7 +46,9 @@ impl SessionCookies {
 impl fmt::Debug for SessionCookies {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let names: Vec<&str> = self.cookies.iter().map(|(n, _)| n.as_str()).collect();
-        f.debug_struct("SessionCookies").field("names", &names).finish()
+        f.debug_struct("SessionCookies")
+            .field("names", &names)
+            .finish()
     }
 }
 
@@ -86,12 +91,14 @@ impl FixedSource {
 impl SessionSource for FixedSource {
     fn read(&self) -> anyhow::Result<Option<SessionCookies>> {
         let armed = *self.armed_at.lock().unwrap();
-        Ok(armed.filter(|t| t.elapsed() >= self.delay).map(|_| SessionCookies {
-            cookies: vec![
-                ("sessionKey".into(), "dev".into()),
-                ("lastActiveOrg".into(), self.org_uuid.clone()),
-            ],
-        }))
+        Ok(armed
+            .filter(|t| t.elapsed() >= self.delay)
+            .map(|_| SessionCookies {
+                cookies: vec![
+                    ("sessionKey".into(), "dev".into()),
+                    ("lastActiveOrg".into(), self.org_uuid.clone()),
+                ],
+            }))
     }
 }
 
@@ -101,7 +108,10 @@ mod tests {
 
     fn c(pairs: &[(&str, &str)]) -> SessionCookies {
         SessionCookies {
-            cookies: pairs.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect(),
+            cookies: pairs
+                .iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect(),
         }
     }
 

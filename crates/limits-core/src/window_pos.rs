@@ -53,7 +53,11 @@ pub fn expand_bounds(rest: (i32, i32), base: (i32, i32), extra: i32, work: Rect)
     } else {
         0
     };
-    Bounds { pos: (rest.0, rest.1 - up), size, offset_y: up }
+    Bounds {
+        pos: (rest.0, rest.1 - up),
+        size,
+        offset_y: up,
+    }
 }
 
 /// Position to save for a debounced window move: the resting position while a popup has the
@@ -81,7 +85,13 @@ impl PopupRoom {
     }
 
     /// New window bounds for `extra` px of popup room (0 = back to rest).
-    pub fn apply(&mut self, current: (i32, i32), base: (i32, i32), extra: i32, work: Rect) -> Bounds {
+    pub fn apply(
+        &mut self,
+        current: (i32, i32),
+        base: (i32, i32),
+        extra: i32,
+        work: Rect,
+    ) -> Bounds {
         let rest = match self.state {
             // Moved by someone else (a drag) while expanded: the widget moved with the window.
             Some((_, last)) if last.pos != current => (current.0, current.1 + last.offset_y),
@@ -90,7 +100,11 @@ impl PopupRoom {
         };
         if extra <= 0 {
             self.state = None;
-            return Bounds { pos: rest, size: base, offset_y: 0 };
+            return Bounds {
+                pos: rest,
+                size: base,
+                offset_y: 0,
+            };
         }
         let b = expand_bounds(rest, base, extra, work);
         self.state = Some((rest, b));
@@ -102,64 +116,135 @@ impl PopupRoom {
 mod tests {
     use super::*;
 
-    const PRIMARY: Rect = Rect { x: 0, y: 0, w: 1920, h: 1080 };
+    const PRIMARY: Rect = Rect {
+        x: 0,
+        y: 0,
+        w: 1920,
+        h: 1080,
+    };
     const SIZE: (i32, i32) = (320, 200);
 
     #[test]
     fn onscreen_kept() {
-        assert_eq!(clamp_position((100, 100), SIZE, &[PRIMARY], PRIMARY), (100, 100));
+        assert_eq!(
+            clamp_position((100, 100), SIZE, &[PRIMARY], PRIMARY),
+            (100, 100)
+        );
     }
 
     #[test]
     fn partially_offscreen_kept_if_at_least_40px_visible() {
         // 40 px visible horizontally (x = 1880), fully visible vertically.
-        assert_eq!(clamp_position((1880, 100), SIZE, &[PRIMARY], PRIMARY), (1880, 100));
+        assert_eq!(
+            clamp_position((1880, 100), SIZE, &[PRIMARY], PRIMARY),
+            (1880, 100)
+        );
         // Negative coordinates, 40 px visible on the left edge.
-        assert_eq!(clamp_position((-280, -160), SIZE, &[PRIMARY], PRIMARY), (-280, -160));
+        assert_eq!(
+            clamp_position((-280, -160), SIZE, &[PRIMARY], PRIMARY),
+            (-280, -160)
+        );
         // Only 39 px visible horizontally: snapped.
-        assert_eq!(clamp_position((1881, 100), SIZE, &[PRIMARY], PRIMARY), (1584, 16));
+        assert_eq!(
+            clamp_position((1881, 100), SIZE, &[PRIMARY], PRIMARY),
+            (1584, 16)
+        );
         // Visible horizontally but only 39 px vertically: snapped.
-        assert_eq!(clamp_position((100, 1041), SIZE, &[PRIMARY], PRIMARY), (1584, 16));
+        assert_eq!(
+            clamp_position((100, 1041), SIZE, &[PRIMARY], PRIMARY),
+            (1584, 16)
+        );
     }
 
     #[test]
     fn offscreen_snaps_to_primary_top_right() {
-        let primary = Rect { x: 100, y: 50, w: 1920, h: 1080 };
+        let primary = Rect {
+            x: 100,
+            y: 50,
+            w: 1920,
+            h: 1080,
+        };
         let got = clamp_position((5000, 5000), SIZE, &[primary], primary);
         assert_eq!(got, (primary.x + primary.w - SIZE.0 - 16, primary.y + 16));
     }
 
     #[test]
     fn visible_on_secondary_monitor_kept() {
-        let second = Rect { x: 1920, y: 0, w: 1280, h: 1024 };
-        assert_eq!(clamp_position((2500, 300), SIZE, &[PRIMARY, second], PRIMARY), (2500, 300));
+        let second = Rect {
+            x: 1920,
+            y: 0,
+            w: 1280,
+            h: 1024,
+        };
+        assert_eq!(
+            clamp_position((2500, 300), SIZE, &[PRIMARY, second], PRIMARY),
+            (2500, 300)
+        );
     }
 
-    const WORK: Rect = Rect { x: 0, y: 0, w: 1920, h: 1040 };
+    const WORK: Rect = Rect {
+        x: 0,
+        y: 0,
+        w: 1920,
+        h: 1040,
+    };
     const BASE: (i32, i32) = (244, 146);
 
     #[test]
     fn grows_down_when_room_below() {
         let b = expand_bounds((100, 100), BASE, 120, WORK);
-        assert_eq!(b, Bounds { pos: (100, 100), size: (244, 266), offset_y: 0 });
+        assert_eq!(
+            b,
+            Bounds {
+                pos: (100, 100),
+                size: (244, 266),
+                offset_y: 0
+            }
+        );
     }
 
     #[test]
     fn grows_up_when_no_room_below() {
         // Bottom of the widget at 1000, only 40 px left above the 1040 work-area bottom.
         let b = expand_bounds((100, 854), BASE, 120, WORK);
-        assert_eq!(b, Bounds { pos: (100, 734), size: (244, 266), offset_y: 120 });
+        assert_eq!(
+            b,
+            Bounds {
+                pos: (100, 734),
+                size: (244, 266),
+                offset_y: 120
+            }
+        );
     }
 
     #[test]
     fn neither_fits_uses_the_larger_side() {
-        let small = Rect { x: 0, y: 0, w: 800, h: 400 };
+        let small = Rect {
+            x: 0,
+            y: 0,
+            w: 800,
+            h: 400,
+        };
         // 60 px above, 194 below: grow down (partly off the work area).
         let b = expand_bounds((10, 60), BASE, 300, small);
-        assert_eq!(b, Bounds { pos: (10, 60), size: (244, 446), offset_y: 0 });
+        assert_eq!(
+            b,
+            Bounds {
+                pos: (10, 60),
+                size: (244, 446),
+                offset_y: 0
+            }
+        );
         // 200 px above, 54 below: grow up as far as the work-area top.
         let b = expand_bounds((10, 200), BASE, 300, small);
-        assert_eq!(b, Bounds { pos: (10, 0), size: (244, 446), offset_y: 200 });
+        assert_eq!(
+            b,
+            Bounds {
+                pos: (10, 0),
+                size: (244, 446),
+                offset_y: 200
+            }
+        );
     }
 
     #[test]
@@ -171,13 +256,34 @@ mod tests {
         assert!(room.expanded());
         // A second popup measured while expanded: still computed from the rest, not the moved window.
         let up2 = room.apply(up.pos, BASE, 90, WORK);
-        assert_eq!(up2, Bounds { pos: (100, 764), size: (244, 236), offset_y: 90 });
+        assert_eq!(
+            up2,
+            Bounds {
+                pos: (100, 764),
+                size: (244, 236),
+                offset_y: 90
+            }
+        );
         let back = room.apply(up2.pos, BASE, 0, WORK);
-        assert_eq!(back, Bounds { pos: (100, 854), size: BASE, offset_y: 0 });
+        assert_eq!(
+            back,
+            Bounds {
+                pos: (100, 854),
+                size: BASE,
+                offset_y: 0
+            }
+        );
         assert!(!room.expanded());
         // Not expanded: a base-size change keeps the current position.
         let tall = room.apply((300, 40), (244, 168), 0, WORK);
-        assert_eq!(tall, Bounds { pos: (300, 40), size: (244, 168), offset_y: 0 });
+        assert_eq!(
+            tall,
+            Bounds {
+                pos: (300, 40),
+                size: (244, 168),
+                offset_y: 0
+            }
+        );
     }
 
     #[test]
@@ -187,11 +293,25 @@ mod tests {
         assert_eq!(up.pos, (100, 734));
         // The user drags the expanded window by (+50, -400): the rest moves with it.
         let back = room.apply((150, 334), BASE, 0, WORK);
-        assert_eq!(back, Bounds { pos: (150, 454), size: BASE, offset_y: 0 });
+        assert_eq!(
+            back,
+            Bounds {
+                pos: (150, 454),
+                size: BASE,
+                offset_y: 0
+            }
+        );
         // Same while staying expanded: recomputed from the new rest (room below now).
         room.apply((100, 854), BASE, 120, WORK);
         let again = room.apply((400, 100), BASE, 120, WORK);
-        assert_eq!(again, Bounds { pos: (400, 220), size: (244, 266), offset_y: 0 });
+        assert_eq!(
+            again,
+            Bounds {
+                pos: (400, 220),
+                size: (244, 266),
+                offset_y: 0
+            }
+        );
     }
 
     #[test]
