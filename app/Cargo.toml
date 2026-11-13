@@ -31,6 +31,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 file-rotate = "0.7"
 serde = { version = "1", features = ["derive"] }
+chrono = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

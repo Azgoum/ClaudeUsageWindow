@@ -2851,6 +2851,7 @@ name = "limitrings"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "eframe",
  "egui",
  "egui-winit",
