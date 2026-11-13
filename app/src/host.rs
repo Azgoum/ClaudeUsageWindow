@@ -153,6 +153,8 @@ struct Running {
     present_error: Option<String>,
     /// When the host last moved or resized the window itself.
     reshaped_at: Option<Instant>,
+    /// Frames in a row that ran out of passes before the window fit.
+    again_streak: u32,
 }
 
 /// How long after the host moved or resized the window a "pointer left" report
@@ -162,6 +164,27 @@ const SPURIOUS_LEAVE_WINDOW: Duration = Duration::from_millis(300);
 /// Widget passes per frame: one, plus one per window change it causes (popup
 /// room, then a settle).
 const PASSES: usize = 3;
+
+/// Frames in a row that may run out of passes and repaint at once; after that
+/// the widget's own delay applies, so a fit that never settles cannot spin the
+/// loop.
+const MAX_AGAIN: u32 = 3;
+
+/// How long until the next frame: the sooner of egui's and the widget's asks,
+/// or at once after a frame that ran out of passes (the `again_streak`-th in a
+/// row), up to [`MAX_AGAIN`] times in a row.
+fn repaint_delay(egui: Duration, widget: Repaint, again_streak: u32) -> Duration {
+    let widget = match widget {
+        Repaint::Idle => Duration::MAX,
+        Repaint::After(d) => d,
+        Repaint::Now => Duration::ZERO,
+    };
+    if (1..=MAX_AGAIN).contains(&again_streak) {
+        Duration::ZERO
+    } else {
+        egui.min(widget)
+    }
+}
 
 /// A window's position and size, physical pixels.
 type Placement = ((i32, i32), (i32, i32));
@@ -248,6 +271,7 @@ impl ApplicationHandler<Wake> for Host {
             saver: MoveSaver::default(),
             present_error: None,
             reshaped_at: None,
+            again_streak: 0,
         };
         // A first frame sizes the window to the widget; then it is placed (the
         // saved position, clamped to the monitors) and painted there before it
@@ -471,13 +495,12 @@ impl Running {
                 .viewport_output
                 .get(&ViewportId::ROOT)
                 .map_or(Duration::MAX, |v| v.repaint_delay);
-            let widget_delay = match shown.repaint {
-                Repaint::Idle => Duration::MAX,
-                Repaint::After(d) => d,
-                Repaint::Now => Duration::ZERO,
-            };
-            let widget_delay = if again { Duration::ZERO } else { widget_delay };
-            self.next_repaint = Instant::now().checked_add(egui_delay.min(widget_delay));
+            self.again_streak = if again { self.again_streak + 1 } else { 0 };
+            if self.again_streak == MAX_AGAIN + 1 {
+                tracing::debug!("the window still does not fit after {MAX_AGAIN} frames");
+            }
+            let delay = repaint_delay(egui_delay, shown.repaint, self.again_streak);
+            self.next_repaint = Instant::now().checked_add(delay);
             break;
         }
         after
@@ -581,6 +604,39 @@ mod tests {
     fn fit_rounds_up_at_fractional_scale() {
         assert_eq!(fit_bounds(1.25, vec2(244.0, 145.6), 0.0), ((305, 182), 0));
         assert_eq!(fit_bounds(1.5, vec2(244.0, 146.0), 92.3), ((366, 219), 139));
+    }
+
+    #[test]
+    fn idle_frames_ask_for_no_repaint() {
+        assert_eq!(
+            repaint_delay(Duration::MAX, Repaint::Idle, 0),
+            Duration::MAX
+        );
+        let second = Duration::from_secs(1);
+        assert_eq!(
+            repaint_delay(Duration::MAX, Repaint::After(second), 0),
+            second
+        );
+        assert_eq!(repaint_delay(second, Repaint::Now, 0), Duration::ZERO);
+    }
+
+    #[test]
+    fn immediate_repaints_for_an_unsettled_fit_are_capped() {
+        for streak in 1..=MAX_AGAIN {
+            assert_eq!(
+                repaint_delay(Duration::MAX, Repaint::Idle, streak),
+                Duration::ZERO
+            );
+        }
+        assert_eq!(
+            repaint_delay(Duration::MAX, Repaint::Idle, MAX_AGAIN + 1),
+            Duration::MAX
+        );
+        let second = Duration::from_secs(1);
+        assert_eq!(
+            repaint_delay(Duration::MAX, Repaint::After(second), MAX_AGAIN + 5),
+            second
+        );
     }
 
     #[test]

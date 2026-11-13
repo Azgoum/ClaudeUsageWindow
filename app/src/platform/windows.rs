@@ -2,7 +2,10 @@
 //! `UpdateLayeredWindow` from a 32-bit premultiplied DIB section. No GPU, no
 //! OS backdrop and no OS shadow; fully transparent pixels are click-through.
 
-use std::{io, mem, ptr};
+use std::{
+    io, mem, ptr,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use winit::{
     raw_window_handle::{HasWindowHandle, RawWindowHandle},
@@ -67,7 +70,14 @@ impl Surface {
             // stays that size when the window grows (menu items below it get no
             // clicks), even after the region is removed.
             let empty = [0u16];
-            windows_sys::Win32::UI::Controls::SetWindowTheme(hwnd, empty.as_ptr(), empty.as_ptr());
+            let hr = windows_sys::Win32::UI::Controls::SetWindowTheme(
+                hwnd,
+                empty.as_ptr(),
+                empty.as_ptr(),
+            );
+            if hr != 0 {
+                tracing::warn!("SetWindowTheme failed: HRESULT {hr:#010x}");
+            }
         }
         // SAFETY: a null DC asks for a memory DC compatible with the screen.
         let dc = unsafe { CreateCompatibleDC(ptr::null_mut()) };
@@ -153,7 +163,9 @@ impl Surface {
         unsafe {
             if GetWindowRgnBox(self.hwnd, &mut bounds) != RGN_ERROR {
                 tracing::debug!(?bounds.right, ?bounds.bottom, "dropping a window region");
-                SetWindowRgn(self.hwnd, ptr::null_mut(), 0);
+                if SetWindowRgn(self.hwnd, ptr::null_mut(), 0) == 0 {
+                    warn_once(&RGN_WARNED, "SetWindowRgn (removing the window region)");
+                }
             }
         }
     }
@@ -206,6 +218,17 @@ impl Drop for Surface {
         self.release_bitmap();
         // SAFETY: the DC was created by `CreateCompatibleDC` in `new`.
         unsafe { DeleteDC(self.dc) };
+    }
+}
+
+static RGN_WARNED: AtomicBool = AtomicBool::new(false);
+static TRACK_WARNED: AtomicBool = AtomicBool::new(false);
+
+/// Logs the failure of the Win32 call `what` with the last error, the first time only.
+fn warn_once(flag: &AtomicBool, what: &str) {
+    let err = io::Error::last_os_error();
+    if !flag.swap(true, Ordering::Relaxed) {
+        tracing::warn!("{what} failed: {err} (further failures not logged)");
     }
 }
 
@@ -400,7 +423,12 @@ pub fn spurious_leave(hwnd: isize) -> bool {
             dwHoverTime: 0,
         };
         // SAFETY: `track` is fully initialized and `hwnd` belongs to this thread.
-        unsafe { TrackMouseEvent(&mut track) };
+        if unsafe { TrackMouseEvent(&mut track) } == 0 {
+            warn_once(
+                &TRACK_WARNED,
+                "TrackMouseEvent (re-arming the pointer-left report)",
+            );
+        }
     }
     over
 }
