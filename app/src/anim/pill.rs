@@ -68,6 +68,67 @@ pub fn pill_font_size(width: f32, avail: f32, chrome: f32) -> Option<f32> {
     Some(PILL_FONT_MIN.max((fit * 4.0).floor() / 4.0))
 }
 
+/// Pill opacity and transform at one instant.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PillFrame {
+    pub alpha: f32,
+    pub dy: f32,
+    pub scale: f32,
+}
+
+/// The pill `ms` after it was shown (spring in, hold, fade out); `None` once it is gone.
+pub fn pill_frame(ms: f64, hold_ms: f64, reduced: bool) -> Option<PillFrame> {
+    use super::easing::{Ease, EASE_DEFAULT};
+    let (in_ms, out_ms) = if reduced {
+        (300.0, 400.0)
+    } else {
+        (650.0, 400.0)
+    };
+    let out_at = in_ms + hold_ms;
+    if ms >= out_at + out_ms {
+        return None;
+    }
+    let lerp = |a: f32, b: f32, e: f32| a + (b - a) * e;
+    if ms < in_ms {
+        let p = (ms.max(0.0) / in_ms) as f32;
+        return Some(if reduced {
+            PillFrame {
+                alpha: EASE_DEFAULT.apply(p),
+                dy: 0.0,
+                scale: 1.0,
+            }
+        } else {
+            let e = Ease::Spring.apply(p);
+            PillFrame {
+                alpha: e.clamp(0.0, 1.0),
+                dy: lerp(6.0, 0.0, e),
+                scale: lerp(0.85, 1.0, e),
+            }
+        });
+    }
+    if ms < out_at {
+        return Some(PillFrame {
+            alpha: 1.0,
+            dy: 0.0,
+            scale: 1.0,
+        });
+    }
+    let e = EASE_DEFAULT.apply(((ms - out_at) / out_ms) as f32);
+    Some(if reduced {
+        PillFrame {
+            alpha: 1.0 - e,
+            dy: 0.0,
+            scale: 1.0,
+        }
+    } else {
+        PillFrame {
+            alpha: 1.0 - e,
+            dy: lerp(0.0, -4.0, e),
+            scale: lerp(1.0, 0.96, e),
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,5 +240,33 @@ mod tests {
     #[test]
     fn font_never_goes_below_the_floor() {
         assert_eq!(pill_font_size(400.0, 236.0, 18.0), Some(PILL_FONT_MIN));
+    }
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::*;
+
+    #[test]
+    fn pill_gone_after_hold() {
+        assert!(pill_frame(650.0 + 2200.0 + 401.0, 2200.0, false).is_none());
+        assert!(pill_frame(650.0 + 2200.0 + 200.0, 2200.0, false).is_some());
+    }
+
+    #[test]
+    fn pill_enters_holds_and_leaves() {
+        let f = pill_frame(0.0, 2200.0, false).unwrap();
+        assert_eq!((f.alpha, f.dy, f.scale), (0.0, 6.0, 0.85));
+        let f = pill_frame(1500.0, 2200.0, false).unwrap();
+        assert_eq!((f.alpha, f.dy, f.scale), (1.0, 0.0, 1.0));
+        let f = pill_frame(650.0 + 2200.0 + 399.0, 2200.0, false).unwrap();
+        assert!(f.alpha < 0.05 && f.dy < -3.5);
+    }
+
+    #[test]
+    fn reduced_motion_only_fades() {
+        let f = pill_frame(150.0, 2200.0, true).unwrap();
+        assert!(f.alpha > 0.0 && f.alpha < 1.0 && f.dy == 0.0 && f.scale == 1.0);
+        assert!(pill_frame(300.0 + 2200.0 + 400.0, 2200.0, true).is_none());
     }
 }
