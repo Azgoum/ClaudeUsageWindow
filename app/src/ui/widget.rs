@@ -6,14 +6,19 @@
 #[cfg(test)]
 use std::collections::BTreeMap;
 
-use egui::{pos2, vec2, Color32, CursorIcon, LayerId, Painter, Rect, Vec2};
+use std::time::Duration;
+
+use egui::{pos2, vec2, Color32, CursorIcon, Id, LayerId, Order, Painter, Rect, Vec2};
 use limits_core::{Conn, LimitKey, RingView};
 
 use super::connect::{Panel, PANEL_W};
-use super::controls::Controls;
+use super::controls::{ease_css, Controls};
 use super::input::PressTracker;
+use super::menu_view::Menu;
 use super::ring::{err_line, is_near_limit};
 use super::rings::{self, Column, RingTweens, COLUMN_H, COLUMN_W, LINE_HEIGHT};
+use super::room::{self, RingRooms};
+use super::tooltip::{self, Tip};
 use super::{colors, draw, fonts, Action, FrameInput, FrameOutput, Repaint};
 use crate::anim::RingFrame;
 
@@ -44,12 +49,26 @@ fn gray_half(c: Color32) -> Color32 {
     Color32::from_rgba_unmultiplied(l, l, l, (f32::from(a) * 0.5).round() as u8)
 }
 
+/// The two ring columns of the rings box `rect` (also the tooltips' hit boxes).
+fn column_rects(rect: Rect) -> [Rect; 2] {
+    let row_top = rect.top() + BORDER + ROW_PAD_TOP;
+    [0, 1].map(|i| {
+        let x = rect.left() + BORDER + ROW_PAD_SIDE + i as f32 * (COLUMN_W + ROW_GAP);
+        rings::column_rect(pos2(x, row_top))
+    })
+}
+
+const TIP_NAMES: [&str; 2] = ["tip_session", "tip_weekly"];
+
 pub struct Widget {
     rings: [RingTweens; 2],
     controls: Controls,
     presses: PressTracker,
+    menu: Menu,
     #[cfg(test)]
     debug_rects: BTreeMap<&'static str, Rect>,
+    #[cfg(test)]
+    debug_menu_items: Vec<(String, Rect)>,
 }
 
 impl Default for Widget {
@@ -64,8 +83,11 @@ impl Widget {
             rings: [RingTweens::new(), RingTweens::new()],
             controls: Controls::default(),
             presses: PressTracker::default(),
+            menu: Menu::default(),
             #[cfg(test)]
             debug_rects: BTreeMap::new(),
+            #[cfg(test)]
+            debug_menu_items: vec![],
         }
     }
 
@@ -73,6 +95,12 @@ impl Widget {
     #[cfg(test)]
     pub fn debug_rects(&self) -> &BTreeMap<&'static str, Rect> {
         &self.debug_rects
+    }
+
+    /// Labels and rects of the open menu's items, as last shown.
+    #[cfg(test)]
+    pub fn debug_menu_items(&self) -> &[(String, Rect)] {
+        &self.debug_menu_items
     }
 
     #[cfg_attr(not(test), expect(unused_variables))]
@@ -84,8 +112,11 @@ impl Widget {
     /// Paints one frame and reports what the host must do.
     pub fn show(&mut self, ctx: &egui::Context, input: &FrameInput) -> FrameOutput {
         #[cfg(test)]
-        self.debug_rects.clear();
-        let clicks = self.presses.frame(ctx);
+        {
+            self.debug_rects.clear();
+            self.debug_menu_items.clear();
+        }
+        let mut clicks = self.presses.frame(ctx);
         let state = input.state;
         let rings = match (&state.conn, &state.rings) {
             (Conn::Connected, Some(rings)) => Some(rings),
@@ -109,10 +140,28 @@ impl Widget {
             .with_clip_rect(rect);
         let warn = !error && is_near_limit(rings);
         draw::glass(&painter, rect, warn);
+        // Popups paint above the widget, anywhere in the window (which is size + extra tall).
+        let window = ctx.content_rect();
+        let popups = ctx
+            .layer_painter(LayerId::new(
+                Order::Foreground,
+                Id::unique("limitrings.popups"),
+            ))
+            .with_clip_rect(window);
 
         let mut animating = false;
         let mut actions = vec![];
         let mut nodrag = vec![];
+        // The menu first: it sits on top, so it takes the clicks on its box.
+        let menu = self.menu.update(
+            ctx,
+            &popups,
+            rect,
+            input,
+            &mut self.presses,
+            &mut clicks,
+            &mut actions,
+        );
         match (rings, &panel) {
             (Some(rings), _) => {
                 animating = self.paint_rings(&painter, rect, rings, [None, None], input);
@@ -127,7 +176,7 @@ impl Widget {
                     for (n, r) in noted {
                         self.note(n, r);
                     }
-                    actions = done.actions;
+                    actions.extend(done.actions);
                     animating = done.animating;
                     nodrag = done.nodrag;
                 }
@@ -155,22 +204,79 @@ impl Widget {
         actions.extend(ctl.actions);
         animating |= ctl.animating;
         nodrag.extend(ctl.nodrag);
-        // A primary press on the glass, off every control, moves the window.
-        if clicks
-            .press
-            .is_some_and(|q| rect.contains(q) && !nodrag.iter().any(|r| r.contains(q)))
-        {
+        // A primary press on the glass, off every control and popup, moves the window.
+        let drag = clicks.press.is_some_and(|q| {
+            rect.contains(q) && !nodrag.iter().any(|r| r.contains(q)) && !clicks.is_blocked(q)
+        });
+        if drag {
             actions.push(Action::StartDrag);
         }
+
+        // Tooltips: never while the menu is open or the button is down (a drag). A drag
+        // closes everything at once so the host settles the window first.
+        let menu = if drag {
+            self.menu.close();
+            None
+        } else {
+            menu
+        };
+        let blocked = menu.is_some() || ctx.input(|i| i.pointer.primary_down()) || drag;
+        let pointer = ctx.pointer_hover_pos();
+        let mut rooms = RingRooms::default();
+        let mut tips = vec![];
+        let mut tip_open = false;
+        for (i, hit) in column_rects(rect).into_iter().enumerate() {
+            let id = Id::unique(("limitrings.tip", i));
+            let view = rings.map(|r| &r[i]);
+            let hover = !blocked && view.is_some() && pointer.is_some_and(|q| hit.contains(q));
+            let alpha = if blocked || view.is_none() {
+                ctx.animate_bool_with_time(id, false, 0.0)
+            } else {
+                ctx.animate_bool_with_time_and_easing(id, hover, tooltip::FADE, ease_css)
+            };
+            let (Some(view), true) = (view, hover || alpha > 0.0) else {
+                continue;
+            };
+            animating |= alpha != if hover { 1.0 } else { 0.0 };
+            tip_open |= hover;
+            let tip = Tip::layout(&popups, view, input, size.x - 2.0 * room::PAD);
+            let room = room::tip_room(hit.bottom() - rect.top(), tip.size.y, size.y);
+            rooms = room::with_ring_room(rooms, view.key, room);
+            let min = tooltip::place(hit, tip.size, size.x);
+            self.note(TIP_NAMES[i], Rect::from_min_size(min, tip.size));
+            tips.push((tip, min, alpha));
+        }
+        let extra = room::max_room(&rooms).max(menu.as_ref().map_or(0.0, |m| m.room));
+
+        // The first frame of a popup may come before the window grew: draw it invisible.
+        let fits = window.height() + 0.5 >= rect.bottom() + extra;
+        for (tip, min, alpha) in tips {
+            let mut p = popups.clone();
+            p.multiply_opacity(if fits { alpha } else { 0.0 });
+            tip.paint(&p, min);
+        }
+        if let Some(m) = &menu {
+            self.note("menu", m.rect());
+            #[cfg(test)]
+            {
+                self.debug_menu_items = m.items();
+            }
+            let mut p = popups.clone();
+            p.multiply_opacity(if fits { 1.0 } else { 0.0 });
+            m.layout.paint(ctx, &p, m.min, pointer);
+        }
+        let repaint = if animating || !fits {
+            Repaint::Now
+        } else if tip_open {
+            Repaint::After(Duration::from_secs(1))
+        } else {
+            Repaint::Idle
+        };
         FrameOutput {
             actions,
             size,
-            extra: 0.0,
-            repaint: if animating {
-                Repaint::Now
-            } else {
-                Repaint::Idle
-            },
+            extra,
+            repaint,
         }
     }
 
@@ -189,12 +295,12 @@ impl Widget {
         let fx: &dyn Fn(Color32) -> Color32 = if error.is_some() { &gray_half } else { &|c| c };
         let row_top = rect.top() + BORDER + ROW_PAD_TOP;
         let mut animating = false;
+        let cols = column_rects(rect);
         for (i, view) in rings.iter().enumerate() {
             let tweens = &mut self.rings[i];
             tweens.update(view, input.t);
             animating |= tweens.animating(input.t);
-            let x = rect.left() + BORDER + ROW_PAD_SIDE + i as f32 * (COLUMN_W + ROW_GAP);
-            let col_rect = rings::column_rect(pos2(x, row_top));
+            let col_rect = cols[i];
             let col = Column {
                 view,
                 live: tweens.value(input.t),
@@ -252,7 +358,7 @@ pub(crate) mod snapshot_tests {
         }
     }
 
-    fn input<'a>(state: &'a AppState, prefs: &'a Prefs, t: f64) -> FrameInput<'a> {
+    fn input<'a>(state: &'a AppState, prefs: &'a Prefs, t: f64, focused: bool) -> FrameInput<'a> {
         FrameInput {
             state,
             prefs,
@@ -261,7 +367,7 @@ pub(crate) mod snapshot_tests {
             t,
             reduced_motion: false,
             offset_y: 0.0,
-            focused: true,
+            focused,
         }
     }
 
@@ -272,13 +378,17 @@ pub(crate) mod snapshot_tests {
         pub out: Option<FrameOutput>,
         /// Animation clock of the next frame.
         pub t: f64,
+        /// The window has focus.
+        pub focused: bool,
     }
 
     /// Paints the backdrop and the widget, settled, into a pass of `ctx`.
     pub(crate) fn frame(ctx: &egui::Context, f: &mut Fixture) {
         ctx.layer_painter(LayerId::background())
             .rect_filled(ctx.content_rect(), 0, BACKDROP);
-        let out = f.widget.show(ctx, &input(&f.state, &f.prefs, f.t));
+        let out = f
+            .widget
+            .show(ctx, &input(&f.state, &f.prefs, f.t, f.focused));
         f.out = Some(out);
     }
 
@@ -289,7 +399,45 @@ pub(crate) mod snapshot_tests {
             prefs: prefs(lang),
             out: None,
             t: T_SETTLED,
+            focused: true,
         }
+    }
+
+    pub(crate) type H = Harness<'static, Fixture>;
+
+    /// Plays the host: grows the harness to `size + extra` until the popups fit, settled.
+    pub(crate) fn fit(h: &mut H) {
+        for _ in 0..4 {
+            let out = h.state().out.as_ref().expect("shown");
+            let want = vec2(out.size.x, out.size.y + out.extra);
+            if (h.ctx.content_rect().size() - want).length() < 0.01 {
+                break;
+            }
+            h.set_size(want);
+            h.run();
+        }
+    }
+
+    /// Moves the pointer to `at`, settles, and grows the window for any popup.
+    pub(crate) fn hover(h: &mut H, at: egui::Pos2) {
+        h.input_mut().events.push(egui::Event::PointerMoved(at));
+        h.run();
+        fit(h);
+    }
+
+    /// Moves the pointer to `at` and presses and releases `button` there, in one frame.
+    pub(crate) fn click_at(h: &mut H, at: egui::Pos2, button: egui::PointerButton) {
+        let input = h.input_mut();
+        input.events.push(egui::Event::PointerMoved(at));
+        for pressed in [true, false] {
+            input.events.push(egui::Event::PointerButton {
+                pos: at,
+                button,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.step();
     }
 
     pub(crate) fn render(kind: &str, lang: Lang, ppp: f32) -> Harness<'static, Fixture> {

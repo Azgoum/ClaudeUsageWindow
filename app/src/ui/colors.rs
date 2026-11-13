@@ -50,6 +50,12 @@ pub const MENU_HOVER: Color32 = rgba(255, 255, 255, 20);
 pub const MENU_SEP: Color32 = rgba(255, 255, 255, 20);
 pub const MENU_SHADOW: Color32 = rgba(0, 0, 0, 128);
 
+/// Ring tooltip: bg `rgba(14,14,18,.94)`, border and title rule `rgba(255,255,255,.1)`,
+/// text `#ddd`.
+pub const TIP_BG: Color32 = rgba(14, 14, 18, 240);
+pub const TIP_BORDER: Color32 = rgba(255, 255, 255, 26);
+pub const TIP_TEXT: Color32 = rgb(0xdd, 0xdd, 0xdd);
+
 /// Surprise glow `rgba(250,204,21,.32)` and its ring `rgba(250,204,21,.85)`.
 pub const GLOW_INNER: Color32 = rgba(250, 204, 21, 82);
 pub const GLOW_RING: Color32 = rgba(250, 204, 21, 217);
