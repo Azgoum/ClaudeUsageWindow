@@ -1153,6 +1153,11 @@ pub(crate) mod snapshot_tests {
         r.at(T_SETTLED + 5.0);
         assert_eq!(r.resets().locks(), [None, None]);
         assert_eq!(pill_shows(&r), 1);
+        // The pill starts fresh at the late frame (Phase 1 shows it on release), so it is seen.
+        let (_, pill) = r.resets().pill(r.f.t).expect("pill drawn after the stall");
+        assert!(pill.alpha < 0.05, "{pill:?}");
+        r.at(T_SETTLED + 6.0);
+        assert!(r.resets().pill(r.f.t).is_some_and(|(_, p)| p.alpha > 0.99));
         assert!(r.f.widget.debug_frames()[0].is_none());
     }
 
@@ -1209,6 +1214,12 @@ pub(crate) mod snapshot_tests {
         r.play_to(T_SETTLED + 5.0);
         assert!(r.resets().ok(0, r.f.t).is_none());
         assert_eq!(r.frame().repaint, Repaint::Idle);
+    }
+
+    #[test]
+    fn surprise_settles_to_no_repaint() {
+        let mut r = reset_run("surprise");
+        assert_eq!(r.at(T_SETTLED + 5.0).repaint, Repaint::Idle);
     }
 
     #[test]

@@ -162,6 +162,8 @@ pub struct Resets {
     pill: Option<ShownPill>,
     glow: Option<f64>,
     bursts: Vec<Burst>,
+    /// How many pills were shown (tests).
+    #[cfg(test)]
     pill_shows: usize,
 }
 
@@ -170,6 +172,7 @@ impl Resets {
     pub fn clear(&mut self, seq: u64) {
         *self = Resets {
             seen: Some(seq),
+            #[cfg(test)]
             pill_shows: self.pill_shows,
             ..Resets::default()
         };
@@ -243,20 +246,37 @@ impl Resets {
         self.locks.contains(&Some(seq))
     }
 
-    /// Shows batch `b`'s pill once, only while it still owns a ring.
-    fn show_pill(&mut self, b: usize, reduced: bool) {
+    /// ms after batch `seq` started when its first owned ring is released.
+    fn release_ms(&self, seq: u64) -> f64 {
+        (0..2)
+            .filter(|&i| self.locks[i] == Some(seq))
+            .filter_map(|i| self.anims[i].as_ref())
+            .filter(|a| a.seq == seq)
+            .map(|a| a.play.end().min(LOCK_SAFETY_MS))
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    /// Shows batch `b`'s pill once at `t`, only while it still owns a ring. The pill starts at
+    /// its scheduled moment, unless the frames stalled up to the batch's release: then, like
+    /// Phase 1's `done()`, it starts fresh now so it is still seen.
+    fn show_pill(&mut self, b: usize, t: f64, reduced: bool) {
         let batch = &self.batches[b];
         if batch.pill_decided {
             return;
         }
-        let (seq, at, spec) = (
-            batch.seq,
-            batch.t0 + batch.pill_at / 1000.0,
-            batch.pill.clone(),
-        );
+        let stalled = ms_since(batch.t0, t) >= self.release_ms(batch.seq);
+        let (seq, spec) = (batch.seq, batch.pill.clone());
+        let at = if stalled {
+            t
+        } else {
+            batch.t0 + batch.pill_at / 1000.0
+        };
         self.batches[b].pill_decided = true;
         if let (true, Some(spec)) = (self.owns_a_ring(seq), spec) {
-            self.pill_shows += 1;
+            #[cfg(test)]
+            {
+                self.pill_shows += 1;
+            }
             self.pill = Some(ShownPill {
                 spec,
                 t0: at,
@@ -271,9 +291,11 @@ impl Resets {
         for b in 0..self.batches.len() {
             let batch = &self.batches[b];
             if ms_since(batch.t0, t) >= batch.pill_at {
-                self.show_pill(b, reduced);
+                self.show_pill(b, t, reduced);
             }
         }
+        // Every PILL_AT comes before its END, so each batch's pill is decided above, before
+        // any of its rings is released below (while the batch still owns them).
         let mut released = vec![];
         for i in 0..2 {
             let Some(anim) = self.anims[i].clone() else {
@@ -283,10 +305,6 @@ impl Resets {
                 continue;
             }
             if ms_since(anim.t0, t) >= anim.play.end().min(LOCK_SAFETY_MS) {
-                // A stalled animation never reached its pill moment: it still gets its pill.
-                if let Some(b) = self.batches.iter().position(|b| b.seq == anim.seq) {
-                    self.show_pill(b, reduced);
-                }
                 self.locks = release(self.locks, key_of(i), anim.seq);
                 released.push((i, anim.hand_over()));
             }
@@ -342,6 +360,7 @@ impl Resets {
     }
 
     /// How many pills were shown (one per batch at most).
+    #[cfg(test)]
     pub fn pill_shows(&self) -> usize {
         self.pill_shows
     }
