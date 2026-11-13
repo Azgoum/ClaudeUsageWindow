@@ -28,6 +28,14 @@ jobs:
             exit 1
           }
 
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace
+        env:
+          WGPU_BACKEND: dx12
+
       - name: Build
         run: cargo build --release -p limitrings
 

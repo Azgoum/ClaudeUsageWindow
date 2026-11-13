@@ -3,6 +3,10 @@ use file_rotate::suffix::AppendCount;
 use file_rotate::{ContentLimit, FileRotate};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use tracing_subscriber::filter::{LevelFilter, Targets};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 
 const MAX_BYTES: usize = 1_000_000;
 /// Archived files kept besides the live one: 3 files in total.
@@ -28,18 +32,24 @@ pub fn rotating_writer(dir: &Path) -> FileRotate<AppendCount> {
 pub fn init() -> Option<PathBuf> {
     let dir = log_dir(&PathBuf::from(std::env::var_os("LOCALAPPDATA")?));
     let level = if cfg!(debug_assertions) {
-        "debug"
+        LevelFilter::DEBUG
     } else {
-        "info"
+        LevelFilter::INFO
     };
     // Dependencies (hyper, tao, ...) are noisy at debug level; keep them at info.
-    let filter = tracing_subscriber::EnvFilter::new(format!(
-        "info,limitrings={level},limitrings_app={level},limits_core={level}"
-    ));
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_ansi(false)
-        .with_writer(Mutex::new(rotating_writer(&dir)))
+    // `Targets` instead of `EnvFilter` keeps the regex engine out of the exe.
+    let filter = Targets::new()
+        .with_default(LevelFilter::INFO)
+        .with_target("limitrings", level)
+        .with_target("limitrings_app", level)
+        .with_target("limits_core", level);
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(Mutex::new(rotating_writer(&dir)))
+                .with_filter(filter),
+        )
         .init();
     Some(dir)
 }
