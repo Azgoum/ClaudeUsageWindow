@@ -58,6 +58,21 @@ const OK_GAP: f32 = 3.0;
 const ARC_DUR: f64 = 0.8;
 const COLOR_DUR: f64 = 0.4;
 const TICK_ALPHA_DUR: f64 = 0.3;
+/// Arc or tick moves smaller than this (degrees; about half a pixel on the ring) are shown at
+/// once instead of eased: every poll recomputes the expected pace at the new time, which nudges
+/// the tick by ~0.6° (session) or ~0.002° (weekly), and a 0.8 s transition for that would keep
+/// the host painting at full rate after each poll (idle CPU) for nothing visible.
+const SNAP_DEG: f32 = 1.5;
+
+/// Heads the angle `tw` from `from` to `to` (in units of `deg` degrees) over `ARC_DUR`, or
+/// at once when the move is too small to see and nothing is in flight.
+fn ease_angle(tw: &mut Tween<f32>, t: f64, from: f32, to: f32, deg: f32) {
+    if tw.done(t) && ((to - from) * deg).abs() < SNAP_DEG {
+        tw.snap(to);
+    } else {
+        tw.retarget(t, to, ARC_DUR, EASE_RING);
+    }
+}
 
 /// What the ring shows from the live view (after the transitions).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -155,10 +170,10 @@ impl RingTweens {
             }
             Some(from) => {
                 if from.arc_fraction != to.arc_fraction {
-                    self.arc.retarget(t, to.arc_fraction, ARC_DUR, EASE_RING);
+                    ease_angle(&mut self.arc, t, from.arc_fraction, to.arc_fraction, 360.0);
                 }
                 if from.tick_deg != to.tick_deg {
-                    self.tick_deg.retarget(t, to.tick_deg, ARC_DUR, EASE_RING);
+                    ease_angle(&mut self.tick_deg, t, from.tick_deg, to.tick_deg, 1.0);
                 }
                 if from.tick_alpha != to.tick_alpha {
                     self.tick_alpha
@@ -545,6 +560,24 @@ mod tests {
         assert!(tw.animating(10.79));
         assert!(!tw.animating(10.8));
         assert_eq!(tw.value(10.8).arc_fraction, 0.4);
+    }
+
+    #[test]
+    fn pace_drift_between_polls_snaps_without_animating() {
+        // Each poll recomputes the expected pace at the new time: 30 s later in a 5 h window
+        // the tick has moved 0.6° (a third of a pixel), which no one can see. It must not start a 0.8 s
+        // full-rate transition every 30 s (idle CPU).
+        let mut tw = RingTweens::new();
+        tw.update(&view(62.0, Pace::Ahead), 0.0);
+        let mut v = view(62.0, Pace::Ahead);
+        v.expected = Some(48.0 + 100.0 * 30.0 / (5.0 * 3600.0));
+        tw.update(&v, 30.0);
+        assert!(!tw.animating(30.0));
+        assert_eq!(tw.value(30.0), Live::of(&v));
+        // A visible move still eases.
+        v.expected = Some(60.0);
+        tw.update(&v, 60.0);
+        assert!(tw.animating(60.0));
     }
 
     #[test]

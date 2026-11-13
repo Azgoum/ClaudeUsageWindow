@@ -1047,6 +1047,19 @@ pub(crate) mod snapshot_tests {
     }
 
     #[test]
+    fn a_poll_with_unchanged_usage_does_not_animate() {
+        // Regression (idle CPU): every 30 s poll recomputes the expected pace, moving the
+        // tick by under a degree; that must not keep the host painting.
+        let mut r = Run::new(fixture("connected", Lang::En));
+        assert_eq!(r.at(T_SETTLED + 1.0).repaint, Repaint::Idle);
+        let rings = r.f.state.rings.as_mut().expect("rings");
+        for v in rings.iter_mut() {
+            v.expected = v.expected.map(|e| e + 0.2);
+        }
+        assert_eq!(r.at(T_SETTLED + 31.0).repaint, Repaint::Idle);
+    }
+
+    #[test]
     fn settles_to_no_repaint() {
         let mut r = Run::new(fixture_live("connected", Lang::En));
         assert_eq!(r.at(T_SETTLED + 0.4).repaint, Repaint::Now);
