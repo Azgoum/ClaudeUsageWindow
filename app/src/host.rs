@@ -421,7 +421,7 @@ impl Running {
     /// The window's new position, size and pixels reach the screen in one
     /// `Surface::present`: moving or growing the window first would leave a
     /// transparent (click-through) gap under the cursor for an instant, enough
-    /// for Windows to report the pointer gone and close the tooltip that asked
+    /// for Windows to report the pointer gone and close the menu that asked
     /// for the room.
     fn frame(&mut self, host: &mut Host) -> After {
         let mut after = After::default();
@@ -442,7 +442,7 @@ impl Running {
             let mut raw = self.input.take_egui_input(&self.window);
             if shift != Vec2::ZERO {
                 // The cursor stays put on screen while the window moves under it;
-                // without this the next pass sees it off the tooltip that grew
+                // without this the next pass sees it off the menu that grew
                 // the window and shrinks it back.
                 if let Some(p) = host.ctx.input(|i| i.pointer.latest_pos()) {
                     raw.events.push(egui::Event::PointerMoved(p + shift));

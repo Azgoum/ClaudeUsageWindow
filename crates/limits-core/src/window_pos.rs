@@ -28,7 +28,7 @@ pub fn clamp_position(
     }
 }
 
-/// Window bounds while a popup (tooltip, menu) needs room beyond the widget.
+/// Window bounds while the context menu needs room beyond the widget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Bounds {
     pub pos: (i32, i32),
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn drag_then_popup_before_debounce_persists_the_drag_end() {
-        // The drag's last Moved reported (500, 300); a tooltip opens before the debounce fires.
+        // The drag's last Moved reported (500, 300); the menu opens before the debounce fires.
         let mut room = PopupRoom::default();
         let down = room.apply((500, 300), BASE, 92, WORK);
         assert_eq!(down.pos, (500, 300));
@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn upward_growth_never_persists_the_raised_window() {
         let mut room = PopupRoom::default();
-        // Drag ended at (500, 900); the tooltip grows the window upward before the debounce fires.
+        // Drag ended at (500, 900); the menu grows the window upward before the debounce fires.
         let up = room.apply((500, 900), BASE, 92, WORK);
         assert_eq!(up.pos, (500, 808));
         assert_eq!(persisted_position((500, 900), &room), (500, 900));

@@ -690,6 +690,7 @@ strip = true
 - The planned-reset ✓ keeps its full 3.2 s fade instead of vanishing when the ring unlocks at 2.15 s.
 - The surprise number "blur" is approximated (egui has no text blur).
 - Digits in the reset line are proportional if egui ignores Inter's `tnum` feature.
+- **Ring tooltip removed** (owner's call, 2026-11-17): hovering a ring shows nothing. Growing the window for it clipped near the screen bottom; the plan, "updated" age, pace and exact reset time it showed are no longer displayed. The context menu keeps the grow-the-window room.
 
 ## Ledger
 

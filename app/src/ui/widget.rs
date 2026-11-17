@@ -13,7 +13,7 @@ use egui::{pos2, vec2, Color32, CursorIcon, Id, LayerId, Order, Painter, Rect, V
 use limits_core::{Conn, LimitKey, RingView};
 
 use super::connect::{Panel, PANEL_W};
-use super::controls::{ease_css, Controls};
+use super::controls::Controls;
 use super::input::PressTracker;
 use super::menu_view::Menu;
 use super::resets::Resets;
@@ -21,13 +21,11 @@ use super::ring::{err_line, is_near_limit};
 #[cfg(test)]
 use super::rings::Live;
 use super::rings::{self, Column, RingTweens, COLUMN_H, COLUMN_W, LINE_HEIGHT};
-use super::room::{self, RingRooms};
-use super::tooltip::{self, Tip};
 use super::{colors, draw, fonts, pill, sparks, Action, FrameInput, FrameOutput, Repaint};
 #[cfg(test)]
 use crate::anim::RingFrame;
 
-/// How often a shown countdown (error retry) or an open tooltip ("updated X ago") ticks.
+/// How often a shown countdown (error retry) ticks.
 const TICK: Duration = Duration::from_secs(1);
 
 /// Frame interval of the Waiting spinner alone: 30 fps. A 12 pt spinner turning once per
@@ -37,19 +35,13 @@ pub const SPIN_FRAME: Duration = Duration::from_millis(33);
 
 /// When the host must paint again without input: as soon as it may (the host paces it to
 /// about 60 fps) while something moves (animations, transitions, a popup's first frame),
-/// at 30 fps for the Waiting spinner alone, each second while a countdown or a tooltip
-/// shows, else only on input or state change.
-pub fn repaint_policy(
-    animating: bool,
-    spinner: bool,
-    countdown: bool,
-    tooltip_open: bool,
-) -> Repaint {
+/// at 30 fps for the Waiting spinner alone, each second while a countdown shows, else only on input or state change.
+pub fn repaint_policy(animating: bool, spinner: bool, countdown: bool) -> Repaint {
     if animating {
         Repaint::Now
     } else if spinner {
         Repaint::After(SPIN_FRAME)
-    } else if countdown || tooltip_open {
+    } else if countdown {
         Repaint::After(TICK)
     } else {
         Repaint::Idle
@@ -83,7 +75,7 @@ fn gray_half(c: Color32) -> Color32 {
     Color32::from_rgba_unmultiplied(l, l, l, (f32::from(a) * 0.5).round() as u8)
 }
 
-/// The two ring columns of the rings box `rect` (also the tooltips' hit boxes).
+/// The two ring columns of the rings box `rect`.
 fn column_rects(rect: Rect) -> [Rect; 2] {
     let row_top = rect.top() + BORDER + ROW_PAD_TOP;
     [0, 1].map(|i| {
@@ -91,8 +83,6 @@ fn column_rects(rect: Rect) -> [Rect; 2] {
         rings::column_rect(pos2(x, row_top))
     })
 }
-
-const TIP_NAMES: [&str; 2] = ["tip_session", "tip_weekly"];
 
 /// The ring's center below its column top (the 64 px SVG box's middle).
 const RING_C: f32 = 32.0;
@@ -318,50 +308,19 @@ impl Widget {
             self.presses.swallow(&mut clicks);
         }
 
-        // Tooltips: never while the menu is open or the button is down (a drag). A drag
-        // closes everything at once so the host settles the window first.
+        // A drag closes the menu at once so the host settles the window first.
         let menu = if drag {
             self.menu.close();
             None
         } else {
             menu
         };
-        let blocked = menu.is_some() || self.presses.is_down() || drag;
         let pointer = ctx.pointer_hover_pos();
-        let mut rooms = RingRooms::default();
-        let mut tips = vec![];
-        let mut tip_open = false;
-        for (i, hit) in column_rects(rect).into_iter().enumerate() {
-            let id = Id::unique(("limitrings.tip", i));
-            let view = rings.map(|r| &r[i]);
-            let hover = !blocked && view.is_some() && pointer.is_some_and(|q| hit.contains(q));
-            let alpha = if blocked || view.is_none() {
-                ctx.animate_bool_with_time(id, false, 0.0)
-            } else {
-                ctx.animate_bool_with_time_and_easing(id, hover, tooltip::FADE, ease_css)
-            };
-            let (Some(view), true) = (view, hover || alpha > 0.0) else {
-                continue;
-            };
-            animating |= alpha != if hover { 1.0 } else { 0.0 };
-            tip_open |= hover;
-            let tip = Tip::layout(&popups, view, input, size.x - 2.0 * room::PAD);
-            let room = room::tip_room(hit.bottom() - rect.top(), tip.size.y, size.y);
-            rooms = room::with_ring_room(rooms, view.key, room);
-            let min = tooltip::place(hit, tip.size, window);
-            self.note(TIP_NAMES[i], Rect::from_min_size(min, tip.size));
-            tips.push((tip, min, alpha));
-        }
-        let extra = room::max_room(&rooms).max(menu.as_ref().map_or(0.0, |m| m.room));
+        let extra = menu.as_ref().map_or(0.0, |m| m.room);
 
-        // The first frame of a popup may come before the window grew: draw it invisible.
+        // The first frame of the menu may come before the window grew: draw it invisible.
         // The room is below the widget, or above it when the host grew the window upward.
         let fits = window.height() + 0.5 >= size.y + extra;
-        for (tip, min, alpha) in tips {
-            let mut p = popups.clone();
-            p.multiply_opacity(if fits { alpha } else { 0.0 });
-            tip.paint(&p, min);
-        }
         if let Some(m) = &menu {
             self.note("menu", m.rect());
             #[cfg(test)]
@@ -374,7 +333,7 @@ impl Widget {
         }
         // The error retry countdown shows on the rings' foot line or as the lone panel line.
         let countdown = state.conn == Conn::Connected && error;
-        let repaint = repaint_policy(animating || !fits, spinner, countdown, tip_open);
+        let repaint = repaint_policy(animating || !fits, spinner, countdown);
         FrameOutput {
             actions,
             size,
@@ -1029,21 +988,17 @@ pub(crate) mod snapshot_tests {
 
     #[test]
     fn policy() {
-        assert_eq!(repaint_policy(false, false, false, false), Repaint::Idle);
+        assert_eq!(repaint_policy(false, false, false), Repaint::Idle);
         assert_eq!(
-            repaint_policy(false, false, true, false),
+            repaint_policy(false, false, true),
             Repaint::After(Duration::from_secs(1))
         );
+        assert_eq!(repaint_policy(true, false, true), Repaint::Now);
         assert_eq!(
-            repaint_policy(false, false, false, true),
-            Repaint::After(Duration::from_secs(1))
-        );
-        assert_eq!(repaint_policy(true, false, true, false), Repaint::Now);
-        assert_eq!(
-            repaint_policy(false, true, true, true),
+            repaint_policy(false, true, true),
             Repaint::After(SPIN_FRAME)
         );
-        assert_eq!(repaint_policy(true, true, false, false), Repaint::Now);
+        assert_eq!(repaint_policy(true, true, false), Repaint::Now);
     }
 
     #[test]

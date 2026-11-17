@@ -20,7 +20,6 @@ pub mod ring;
 pub mod rings;
 pub mod room;
 pub mod sparks;
-pub mod tooltip;
 pub mod widget;
 
 #[cfg(test)]

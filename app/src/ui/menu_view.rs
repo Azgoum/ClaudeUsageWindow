@@ -371,10 +371,10 @@ mod tests {
     use limits_core::Command;
 
     use super::*;
-    use crate::ui::widget::snapshot_tests::{click_at, fit, fixture, render, H};
+    use crate::ui::widget::snapshot_tests::{click_at, fit, fixture, hover, render, H};
     use crate::ui::{FrameOutput, Lang};
 
-    /// Where the menus open: the glass between the ring columns (no tooltip once closed).
+    /// Where the menus open: the glass between the ring columns.
     const AT: Pos2 = pos2(122.0, 60.0);
 
     fn open_menu(kind: &str, lang: Lang, at: Pos2) -> H {
@@ -414,18 +414,6 @@ mod tests {
         h.state_mut().focused = false;
         h.run();
         out(h)
-    }
-
-    /// Opens the menu on the session ring, then rests the pointer there.
-    fn tooltip_visible_with_menu_open(kind: &str) -> bool {
-        let ring =
-            render(kind, Lang::En, 1.0).state().widget.debug_rects()["ring_session"].center();
-        let mut h = open_menu(kind, Lang::En, ring);
-        h.input_mut().events.push(egui::Event::PointerMoved(ring));
-        h.run();
-        let rects = h.state().widget.debug_rects();
-        assert!(rects.contains_key("menu"));
-        rects.contains_key("tip_session") || rects.contains_key("tip_weekly")
     }
 
     #[test]
@@ -484,7 +472,6 @@ mod tests {
 
     #[test]
     fn item_click_closes_the_menu() {
-        // "Disconnect" lies below the rings: no tooltip opens under the pointer afterwards.
         let mut h = open_menu("connected", Lang::En, AT);
         let items = h.state().widget.debug_menu_items().to_vec();
         let (_, r) = items.iter().find(|(l, _)| l == "Disconnect").unwrap();
@@ -550,8 +537,12 @@ mod tests {
     }
 
     #[test]
-    fn no_tooltip_while_menu_open() {
-        assert!(!tooltip_visible_with_menu_open("connected"));
+    fn hovering_a_ring_opens_no_popup() {
+        // Hovering a ring shows nothing: it never grows (or moves) the window.
+        let mut h = render("connected", Lang::En, 1.0);
+        let ring = h.state().widget.debug_rects()["ring_session"].center();
+        hover(&mut h, ring);
+        assert_eq!(h.state().out.as_ref().unwrap().extra, 0.0);
     }
 
     #[test]
