@@ -4,39 +4,30 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: windows-latest
+    env:
+      # Snapshot tests (egui_kittest + wgpu) need a DX12 adapter; the runner has no GPU,
+      # so this selects the WARP software adapter.
+      WGPU_BACKEND: dx12
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
+          components: rustfmt, clippy
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
 
-      - name: Rust tests
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests
         run: cargo test --workspace
-
-      - name: UI install
-        working-directory: ui
-        run: npm ci
-
-      - name: UI tests
-        working-directory: ui
-        run: npm test -- --run
-
-      - name: UI type-check
-        working-directory: ui
-        run: npx tsc --noEmit
-
-      - name: Install tauri-cli
-        run: cargo install tauri-cli --version "^2" --locked
-
-      - name: Build smoke test
-        run: cargo tauri build --debug

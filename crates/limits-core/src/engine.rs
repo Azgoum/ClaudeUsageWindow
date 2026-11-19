@@ -1,7 +1,8 @@
 use crate::clock::Clock;
 use crate::{
-    backoff_delay, choose_org, detect_resets_for, eligible_orgs, pace, ApiError, ClaudeApi, CredStore,
-    LimitKey, Org, Pace, Plan, ResetEvent, SessionCookies, SessionSource, SettingsStore, Usage,
+    backoff_delay, choose_org, detect_resets_for, eligible_orgs, pace, ApiError, ClaudeApi,
+    CredStore, LimitKey, Org, Pace, Plan, ResetEvent, SessionCookies, SessionSource, SettingsStore,
+    Usage,
 };
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -31,7 +32,11 @@ pub enum Command {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "state",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum Conn {
     Disconnected { timed_out: bool },
     NeedsFirefox,
@@ -63,7 +68,11 @@ pub struct OrgSummary {
 
 impl From<&Org> for OrgSummary {
     fn from(o: &Org) -> Self {
-        Self { uuid: o.uuid.clone(), name: o.name.clone(), plan: o.plan }
+        Self {
+            uuid: o.uuid.clone(),
+            name: o.name.clone(),
+            plan: o.plan,
+        }
     }
 }
 
@@ -188,7 +197,10 @@ impl Heartbeat {
         let mut line = None;
         if now - since >= Self::PERIOD {
             line = Some((self.polls, self.failures));
-            *self = Self { since: Some(now), ..Self::default() };
+            *self = Self {
+                since: Some(now),
+                ..Self::default()
+            };
         }
         self.polls += 1;
         if !ok {
@@ -200,11 +212,25 @@ impl Heartbeat {
 
 fn ring(key: LimitKey, u: &Usage, plan: Option<Plan>, now: DateTime<Utc>) -> RingView {
     if key == LimitKey::Session && plan.is_some_and(|p| !p.has_session_limit()) {
-        return RingView { key, used: 0.0, resets_at: None, expected: None, pace: Pace::Idle, no_limit: true };
+        return RingView {
+            key,
+            used: 0.0,
+            resets_at: None,
+            expected: None,
+            pace: Pace::Idle,
+            no_limit: true,
+        };
     }
     let w = u.get(key);
     let p = pace(key, w, now);
-    RingView { key, used: w.used, resets_at: w.resets_at, expected: p.expected, pace: p.pace, no_limit: false }
+    RingView {
+        key,
+        used: w.used,
+        resets_at: w.resets_at,
+        expected: p.expected,
+        pace: p.pace,
+        no_limit: false,
+    }
 }
 
 fn describe(e: &ApiError) -> String {
@@ -314,8 +340,7 @@ impl Engine {
     fn apply_orgs(&mut self, orgs: &[Org]) -> bool {
         self.state.orgs = summaries(orgs);
         let last_active = self.cookies.as_ref().and_then(|c| c.last_active_org());
-        let chosen = choose_org(orgs, self.org_uuid.as_deref(), last_active)
-            .map(OrgSummary::from);
+        let chosen = choose_org(orgs, self.org_uuid.as_deref(), last_active).map(OrgSummary::from);
         match chosen {
             Some(o) => {
                 self.save_org(Some(o.uuid.clone()));
@@ -328,7 +353,9 @@ impl Engine {
 
     /// Fetches the org list with the current cookies (start, or when no org is known yet).
     async fn refresh_orgs(&mut self) {
-        let Some(c) = self.cookies.clone() else { return };
+        let Some(c) = self.cookies.clone() else {
+            return;
+        };
         match self.deps.api.orgs(&c).await {
             Ok(orgs) => {
                 if !self.apply_orgs(&orgs) {
@@ -349,7 +376,9 @@ impl Engine {
             return;
         }
         self.next_poll = None;
-        let Some(c) = self.cookies.clone() else { return };
+        let Some(c) = self.cookies.clone() else {
+            return;
+        };
         // Also retry when the list is still empty (e.g. network down at boot): the org menu
         // and the org name depend on it.
         if refresh_orgs && (self.org_uuid.is_none() || self.state.orgs.is_empty()) {
@@ -376,10 +405,12 @@ impl Engine {
     fn refresh_rings(&mut self) {
         let now = self.deps.clock.now();
         let plan = self.state.org.as_ref().and_then(|o| o.plan);
-        self.state.rings = self
-            .last_usage
-            .as_ref()
-            .map(|u| [ring(LimitKey::Session, u, plan, now), ring(LimitKey::Weekly, u, plan, now)]);
+        self.state.rings = self.last_usage.as_ref().map(|u| {
+            [
+                ring(LimitKey::Session, u, plan, now),
+                ring(LimitKey::Weekly, u, plan, now),
+            ]
+        });
     }
 
     async fn on_poll_result(&mut self, res: Result<Usage, ApiError>) {
@@ -388,7 +419,11 @@ impl Engine {
         }
         match res {
             Ok(cur) => {
-                tracing::debug!(session = cur.session.used, weekly = cur.weekly.used, "poll ok");
+                tracing::debug!(
+                    session = cur.session.used,
+                    weekly = cur.weekly.used,
+                    "poll ok"
+                );
                 let now = self.deps.clock.now();
                 if let Some(prev) = &self.prev {
                     let plan = self.state.org.as_ref().and_then(|o| o.plan);
@@ -410,9 +445,14 @@ impl Engine {
             }
             Err(ApiError::Expired) => {
                 let current = self.cookies.as_ref().map(|c| c.fingerprint());
-                match self.read_source().filter(|c| Some(c.fingerprint()) != current) {
+                match self
+                    .read_source()
+                    .filter(|c| Some(c.fingerprint()) != current)
+                {
                     Some(fresh) => {
-                        tracing::info!("session expired but the browser has a newer cookie; retrying");
+                        tracing::info!(
+                            "session expired but the browser has a newer cookie; retrying"
+                        );
                         if let Err(e) = self.deps.creds.save(&fresh) {
                             tracing::warn!("cannot save credentials: {e}");
                         }
@@ -435,8 +475,14 @@ impl Engine {
     fn on_failure(&mut self, e: ApiError) {
         self.failures += 1;
         let delay = backoff_delay(self.failures);
-        tracing::warn!(failures = self.failures, retry_in_secs = delay.as_secs(), "poll failed: {}", describe(&e));
-        let retry_at = self.deps.clock.now() + chrono::Duration::from_std(delay).unwrap_or_default();
+        tracing::warn!(
+            failures = self.failures,
+            retry_in_secs = delay.as_secs(),
+            "poll failed: {}",
+            describe(&e)
+        );
+        let retry_at =
+            self.deps.clock.now() + chrono::Duration::from_std(delay).unwrap_or_default();
         self.state.error = Some(ErrorInfo { retry_at });
         self.refresh_rings();
         self.next_poll = Some(Instant::now() + delay);
@@ -504,7 +550,10 @@ impl Engine {
                 self.prev = None;
                 self.last_usage = None;
                 self.failures = 0;
-                self.state = AppState { reset_seq: self.state.reset_seq, ..AppState::default() };
+                self.state = AppState {
+                    reset_seq: self.state.reset_seq,
+                    ..AppState::default()
+                };
                 tracing::info!("disconnected by user");
             }
         }
@@ -520,7 +569,10 @@ impl Engine {
         }
         self.next_tick = Some(now + CONNECT_TICK);
         // Until the user logs in again, Firefox still holds the cookie claude.ai just rejected.
-        let Some(c) = self.read_source().filter(|c| Some(c.fingerprint()) != self.rejected) else {
+        let Some(c) = self
+            .read_source()
+            .filter(|c| Some(c.fingerprint()) != self.rejected)
+        else {
             return;
         };
         let orgs = match self.deps.api.orgs(&c).await {
@@ -633,8 +685,14 @@ mod tests {
 
     fn usage(session_used: f64, session_resets: Option<&str>, weekly_used: f64) -> Usage {
         Usage {
-            session: Window { used: session_used, resets_at: session_resets.map(t) },
-            weekly: Window { used: weekly_used, resets_at: Some(t("2026-11-09T00:00:00Z")) },
+            session: Window {
+                used: session_used,
+                resets_at: session_resets.map(t),
+            },
+            weekly: Window {
+                used: weekly_used,
+                resets_at: Some(t("2026-11-09T00:00:00Z")),
+            },
         }
     }
 
@@ -647,15 +705,28 @@ mod tests {
     }
 
     fn org(uuid: &str, caps: &[&str]) -> Org {
-        Org { uuid: uuid.into(), name: uuid.into(), capabilities: caps.iter().map(|s| s.to_string()).collect(), plan: None }
+        Org {
+            uuid: uuid.into(),
+            name: uuid.into(),
+            capabilities: caps.iter().map(|s| s.to_string()).collect(),
+            plan: None,
+        }
     }
 
     fn default_orgs() -> Vec<Org> {
-        vec![org("org-a", &["chat"]), org("org-b", &["chat"]), org("org-api", &["api"])]
+        vec![
+            org("org-a", &["chat"]),
+            org("org-b", &["chat"]),
+            org("org-api", &["api"]),
+        ]
     }
 
     fn summary(uuid: &str) -> OrgSummary {
-        OrgSummary { uuid: uuid.into(), name: uuid.into(), plan: None }
+        OrgSummary {
+            uuid: uuid.into(),
+            name: uuid.into(),
+            plan: None,
+        }
     }
 
     struct Setup {
@@ -751,7 +822,12 @@ mod tests {
         let path = dir.path().join("settings.json");
         let settings = SettingsStore::new(path.clone());
         if let Some(o) = s.saved_org {
-            settings.save(&crate::Settings { org_uuid: Some(o.into()), ..Default::default() }).unwrap();
+            settings
+                .save(&crate::Settings {
+                    org_uuid: Some(o.into()),
+                    ..Default::default()
+                })
+                .unwrap();
         }
         let api = Arc::new(FakeApi {
             usage: Mutex::new(s.usage.into_iter().collect()),
@@ -773,7 +849,10 @@ mod tests {
             creds.save(c).unwrap();
         }
         let clock = Arc::new(FakeClock::new(t(s.start)));
-        let browser = Arc::new(FakeBrowser { installed: s.installed, open_calls: AtomicUsize::new(0) });
+        let browser = Arc::new(FakeBrowser {
+            installed: s.installed,
+            open_calls: AtomicUsize::new(0),
+        });
         let (tx, mut rx) = spawn_engine(EngineDeps {
             api: api.clone(),
             source: source.clone(),
@@ -783,11 +862,25 @@ mod tests {
             browser: browser.clone(),
         });
         settle(&mut rx).await;
-        H { tx, rx, api, source, creds, clock, browser, settings, _dir: dir }
+        H {
+            tx,
+            rx,
+            api,
+            source,
+            creds,
+            clock,
+            browser,
+            settings,
+            _dir: dir,
+        }
     }
 
     fn with_creds() -> Setup {
-        Setup { creds: Some(cookies("sk-old", Some("org-b"))), saved_org: Some("org-a"), ..Default::default() }
+        Setup {
+            creds: Some(cookies("sk-old", Some("org-b"))),
+            saved_org: Some("org-a"),
+            ..Default::default()
+        }
     }
 
     const DISCONNECTED: Conn = Conn::Disconnected { timed_out: false };
@@ -823,10 +916,17 @@ mod tests {
         let mut orgs = default_orgs();
         orgs[0].plan = Some(Plan::Max);
         orgs[1].plan = Some(Plan::Team);
-        let h = start(Setup { orgs: Some(orgs), ..with_creds() }).await;
+        let h = start(Setup {
+            orgs: Some(orgs),
+            ..with_creds()
+        })
+        .await;
         let s = h.state();
         assert_eq!(s.org.as_ref().and_then(|o| o.plan), Some(Plan::Max));
-        assert_eq!(s.orgs.iter().map(|o| o.plan).collect::<Vec<_>>(), vec![Some(Plan::Max), Some(Plan::Team)]);
+        assert_eq!(
+            s.orgs.iter().map(|o| o.plan).collect::<Vec<_>>(),
+            vec![Some(Plan::Max), Some(Plan::Team)]
+        );
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v["org"]["plan"], "max");
         assert_eq!(v["orgs"][1]["plan"], "team");
@@ -836,7 +936,12 @@ mod tests {
     async fn ultra_plan_session_ring_is_no_limit() {
         let mut orgs = default_orgs();
         orgs[0].plan = Some(Plan::Ultra);
-        let h = start(Setup { orgs: Some(orgs), usage: vec![Ok(usage(0.0, None, 12.0))], ..with_creds() }).await;
+        let h = start(Setup {
+            orgs: Some(orgs),
+            usage: vec![Ok(usage(0.0, None, 12.0))],
+            ..with_creds()
+        })
+        .await;
         let s = h.state();
         let r = s.rings.clone().expect("rings");
         assert!(r[0].no_limit && r[0].pace == Pace::Idle && r[0].expected.is_none());
@@ -850,13 +955,21 @@ mod tests {
     async fn max_plan_session_ring_has_a_limit() {
         let mut orgs = default_orgs();
         orgs[0].plan = Some(Plan::Max);
-        let h = start(Setup { orgs: Some(orgs), ..with_creds() }).await;
+        let h = start(Setup {
+            orgs: Some(orgs),
+            ..with_creds()
+        })
+        .await;
         assert!(!h.state().rings.unwrap()[0].no_limit);
     }
 
     #[tokio::test(start_paused = true)]
     async fn start_without_saved_org_picks_last_active_and_saves_it() {
-        let h = start(Setup { saved_org: None, ..with_creds() }).await;
+        let h = start(Setup {
+            saved_org: None,
+            ..with_creds()
+        })
+        .await;
         assert_eq!(h.state().org, Some(summary("org-b")));
         assert_eq!(h.settings.load().org_uuid.as_deref(), Some("org-b"));
         assert_eq!(*h.api.usage_orgs.lock().unwrap(), vec!["org-b"]);
@@ -864,7 +977,11 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn orgs_failing_at_start_are_fetched_on_next_tick() {
-        let mut h = start(Setup { orgs_fail: true, ..with_creds() }).await;
+        let mut h = start(Setup {
+            orgs_fail: true,
+            ..with_creds()
+        })
+        .await;
         assert_eq!(h.calls(), 1, "polling works with the saved org");
         assert!(h.state().orgs.is_empty());
         assert!(h.state().org.is_none());
@@ -879,9 +996,17 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn publishes_connected_before_orgs_resolve() {
-        let mut h = start(Setup { orgs_delay: Duration::from_secs(10), ..with_creds() }).await;
+        let mut h = start(Setup {
+            orgs_delay: Duration::from_secs(10),
+            ..with_creds()
+        })
+        .await;
         h.jump(Duration::from_millis(1)).await;
-        assert_eq!(h.state().conn, Conn::Connected, "no Connect flash while the org list loads");
+        assert_eq!(
+            h.state().conn,
+            Conn::Connected,
+            "no Connect flash while the org list loads"
+        );
         assert_eq!(h.calls(), 0);
         h.step(10).await;
         assert_eq!(h.calls(), 1);
@@ -896,11 +1021,21 @@ mod tests {
             ..with_creds()
         })
         .await;
-        assert_eq!(h.orgs_calls(), 1, "start does not re-await a list it just failed to get");
+        assert_eq!(
+            h.orgs_calls(),
+            1,
+            "start does not re-await a list it just failed to get"
+        );
         let s = h.state();
         assert_eq!(s.conn, Conn::Connected);
         assert!(s.rings.is_none());
-        assert_eq!(s.error, Some(ErrorInfo { retry_at: t("2026-11-03T12:01:00Z") }), "error shown with backoff");
+        assert_eq!(
+            s.error,
+            Some(ErrorInfo {
+                retry_at: t("2026-11-03T12:01:00Z")
+            }),
+            "error shown with backoff"
+        );
         // The next poll retries the list.
         *h.api.orgs.lock().unwrap() = Ok(default_orgs());
         h.step(60).await;
@@ -911,7 +1046,11 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn connect_without_firefox_needs_firefox() {
-        let mut h = start(Setup { installed: false, ..Default::default() }).await;
+        let mut h = start(Setup {
+            installed: false,
+            ..Default::default()
+        })
+        .await;
         h.send(Command::Connect).await;
         assert_eq!(h.state().conn, Conn::NeedsFirefox);
         assert_eq!(h.browser.open_calls.load(Ordering::SeqCst), 0);
@@ -994,7 +1133,10 @@ mod tests {
     async fn surprise_reset_increments_seq() {
         let mut h = start(Setup {
             start: "2026-11-03T11:46:00Z",
-            usage: vec![Ok(usage(78.0, Some("2026-11-03T14:00:00Z"), 34.0)), Ok(usage(0.0, None, 34.0))],
+            usage: vec![
+                Ok(usage(78.0, Some("2026-11-03T14:00:00Z"), 34.0)),
+                Ok(usage(0.0, None, 34.0)),
+            ],
             ..with_creds()
         })
         .await;
@@ -1004,7 +1146,12 @@ mod tests {
         assert_eq!(s.reset_seq, 1);
         assert_eq!(s.resets.len(), 1);
         assert_eq!(s.resets[0].key, LimitKey::Session);
-        assert_eq!(s.resets[0].kind, ResetKind::Surprise { early_secs: 2 * 3600 + 13 * 60 + 30 });
+        assert_eq!(
+            s.resets[0].kind,
+            ResetKind::Surprise {
+                early_secs: 2 * 3600 + 13 * 60 + 30
+            }
+        );
         assert_eq!(s.resets[0].from_used, 78.0);
         // a following poll without a drop keeps seq and the last events
         h.push_usage(Ok(usage(3.0, Some("2026-11-03T16:47:00Z"), 34.0)));
@@ -1017,7 +1164,10 @@ mod tests {
     async fn wake_after_sleep_single_poll_planned() {
         let mut h = start(Setup {
             start: "2026-11-03T13:59:00Z",
-            usage: vec![Ok(usage(78.0, Some("2026-11-03T14:00:00Z"), 34.0)), Ok(usage(0.0, None, 34.0))],
+            usage: vec![
+                Ok(usage(78.0, Some("2026-11-03T14:00:00Z"), 34.0)),
+                Ok(usage(0.0, None, 34.0)),
+            ],
             ..with_creds()
         })
         .await;
@@ -1041,7 +1191,10 @@ mod tests {
             usage: vec![
                 Ok(usage(20.0, Some("2026-11-03T14:00:00Z"), 5.0)),
                 Err(ApiError::Unavailable("HTTP 503".into())),
-                Err(ApiError::Unexpected { status: 200, body_head: "{}".into() }),
+                Err(ApiError::Unexpected {
+                    status: 200,
+                    body_head: "{}".into(),
+                }),
                 Ok(usage(21.0, Some("2026-11-03T14:00:00Z"), 5.0)),
             ],
             ..with_creds()
@@ -1049,13 +1202,23 @@ mod tests {
         .await;
         h.step(30).await; // first failure at 12:00:30
         let s = h.state();
-        assert_eq!(s.error, Some(ErrorInfo { retry_at: t("2026-11-03T12:01:30Z") }));
+        assert_eq!(
+            s.error,
+            Some(ErrorInfo {
+                retry_at: t("2026-11-03T12:01:30Z")
+            })
+        );
         assert!(s.rings.is_some(), "rings kept on failure");
         assert_eq!(s.conn, Conn::Connected);
         h.step(59).await;
         assert_eq!(h.calls(), 2);
         h.step(1).await; // second failure at 12:01:30
-        assert_eq!(h.state().error, Some(ErrorInfo { retry_at: t("2026-11-03T12:03:30Z") }));
+        assert_eq!(
+            h.state().error,
+            Some(ErrorInfo {
+                retry_at: t("2026-11-03T12:03:30Z")
+            })
+        );
         h.step(120).await; // success at 12:03:30
         let s = h.state();
         assert_eq!(h.calls(), 4);
@@ -1069,7 +1232,10 @@ mod tests {
     async fn expired_recovers_silently_from_newer_cookie() {
         let fresh = cookies("sk-new", Some("org-a"));
         let h = start(Setup {
-            usage: vec![Err(ApiError::Expired), Ok(usage(20.0, Some("2026-11-03T14:00:00Z"), 5.0))],
+            usage: vec![
+                Err(ApiError::Expired),
+                Ok(usage(20.0, Some("2026-11-03T14:00:00Z"), 5.0)),
+            ],
             source: Some(fresh.clone()),
             ..with_creds()
         })
@@ -1108,7 +1274,11 @@ mod tests {
         let before = h.orgs_calls();
         h.send(Command::Connect).await;
         h.step(20).await;
-        assert_eq!(h.orgs_calls(), before, "the rejected cookie is never sent again");
+        assert_eq!(
+            h.orgs_calls(),
+            before,
+            "the rejected cookie is never sent again"
+        );
         assert_eq!(h.state().conn, Conn::Waiting);
         h.source.set(Some(cookies("sk-new", Some("org-b"))));
         h.step(2).await;
@@ -1118,7 +1288,11 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn refresh_polls_now_but_not_while_in_flight() {
-        let mut h = start(Setup { delay: Duration::from_secs(5), ..with_creds() }).await;
+        let mut h = start(Setup {
+            delay: Duration::from_secs(5),
+            ..with_creds()
+        })
+        .await;
         assert_eq!(h.calls(), 1);
         h.step(1).await;
         h.send(Command::Refresh).await;
@@ -1133,7 +1307,10 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn select_org_resets_prev_no_animation() {
         let mut h = start(Setup {
-            usage: vec![Ok(usage(78.0, Some("2026-11-03T14:00:00Z"), 34.0)), Ok(usage(0.0, None, 0.0))],
+            usage: vec![
+                Ok(usage(78.0, Some("2026-11-03T14:00:00Z"), 34.0)),
+                Ok(usage(0.0, None, 0.0)),
+            ],
             ..with_creds()
         })
         .await;
@@ -1193,10 +1370,19 @@ mod tests {
                     pace: Pace::Ahead,
                     no_limit: false,
                 },
-                RingView { key: LimitKey::Weekly, used: 0.0, resets_at: None, expected: None, pace: Pace::Idle, no_limit: false },
+                RingView {
+                    key: LimitKey::Weekly,
+                    used: 0.0,
+                    resets_at: None,
+                    expected: None,
+                    pace: Pace::Idle,
+                    no_limit: false,
+                },
             ]),
             last_ok: Some(t("2026-11-03T12:00:00Z")),
-            error: Some(ErrorInfo { retry_at: t("2026-11-03T12:01:00Z") }),
+            error: Some(ErrorInfo {
+                retry_at: t("2026-11-03T12:01:00Z"),
+            }),
             resets: vec![],
             reset_seq: 3,
         };
@@ -1211,7 +1397,10 @@ mod tests {
         assert!(v.get("last_ok").is_none() && v.get("reset_seq").is_none());
 
         let j = |c: Conn| serde_json::to_string(&c).unwrap();
-        assert_eq!(j(Conn::Disconnected { timed_out: false }), r#"{"state":"disconnected","timedOut":false}"#);
+        assert_eq!(
+            j(Conn::Disconnected { timed_out: false }),
+            r#"{"state":"disconnected","timedOut":false}"#
+        );
         assert_eq!(j(Conn::NeedsFirefox), r#"{"state":"needsFirefox"}"#);
         assert_eq!(j(Conn::Waiting), r#"{"state":"waiting"}"#);
         assert_eq!(j(Conn::Expired), r#"{"state":"expired"}"#);

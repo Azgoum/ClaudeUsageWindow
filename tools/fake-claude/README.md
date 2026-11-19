@@ -4,10 +4,12 @@ Dev-only scripted fake of claude.ai's usage endpoints. Node 22, no dependencies.
 
     node tools/fake-claude/server.mjs [--port 8787]
 
-Debug builds of the Tauri shell honor:
+Debug builds of the egui exe (`limitrings`) honor these switches (release builds ignore every `LIMITRINGS_*` variable):
 
 - `LIMITRINGS_BASE_URL=http://127.0.0.1:8787` - `HttpApi` uses this base.
 - `LIMITRINGS_FAKE_SESSION=1` - `FixedSource` returns a fake session 5 s after login is opened.
+- `LIMITRINGS_AUTOCONNECT=1` - send Connect at startup (no click needed).
+- `LIMITRINGS_FAKE_NO_FIREFOX=1` - the launcher reports Firefox as not installed.
 - `LIMITRINGS_DEV_AUTOSTART=1` - let a debug run manage Start with Windows (off by default: a
   debug exe registered at logon would open a broken window; release builds always manage it).
 

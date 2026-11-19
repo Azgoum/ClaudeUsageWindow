@@ -1,0 +1,50 @@
+[package]
+name = "limitrings"
+version = "0.2.0"
+description = "Claude Limit Checker: unofficial claude.ai usage widget"
+edition = "2021"
+
+[lib]
+name = "limitrings_app"
+
+[[bin]]
+name = "limitrings"
+path = "src/main.rs"
+
+[dependencies]
+egui = { version = "0.37", default-features = false }
+egui-winit = { version = "0.37", default-features = false }
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
+limits-core = { path = "../crates/limits-core" }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+url = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "std", "tracing-log"] }
+file-rotate = "0.7"
+chrono = "0.4"
+sys-locale = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_UI_Controls",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+ttf-parser = "0.25"
+image = { version = "0.25", default-features = false, features = ["png"] }
+egui_kittest = { version = "0.37", features = ["wgpu", "snapshot"] }
+tokio = { version = "1", features = ["macros", "rt", "time"] }
+
+[build-dependencies]
+png = "0.17"
+winresource = "0.1.34"

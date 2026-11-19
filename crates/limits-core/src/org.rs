@@ -17,7 +17,9 @@ pub fn choose_org<'a>(
 ) -> Option<&'a Org> {
     let eligible = eligible_orgs(orgs);
     let find = |id: Option<&str>| id.and_then(|id| eligible.iter().copied().find(|o| o.uuid == id));
-    find(saved).or_else(|| find(last_active)).or_else(|| eligible.first().copied())
+    find(saved)
+        .or_else(|| find(last_active))
+        .or_else(|| eligible.first().copied())
 }
 
 #[cfg(test)]
@@ -35,19 +37,31 @@ mod tests {
 
     #[test]
     fn saved_eligible_wins() {
-        let orgs = [org("a", &["chat"]), org("b", &["chat"]), org("c", &["chat"])];
+        let orgs = [
+            org("a", &["chat"]),
+            org("b", &["chat"]),
+            org("c", &["chat"]),
+        ];
         assert_eq!(choose_org(&orgs, Some("c"), Some("b")).unwrap().uuid, "c");
     }
 
     #[test]
     fn saved_api_only_is_ignored() {
-        let orgs = [org("a", &["chat"]), org("b", &["chat"]), org("api", &["api"])];
+        let orgs = [
+            org("a", &["chat"]),
+            org("b", &["chat"]),
+            org("api", &["api"]),
+        ];
         assert_eq!(choose_org(&orgs, Some("api"), Some("b")).unwrap().uuid, "b");
     }
 
     #[test]
     fn unknown_last_active_falls_back_to_first_eligible() {
-        let orgs = [org("api", &["api"]), org("a", &["chat"]), org("b", &["chat"])];
+        let orgs = [
+            org("api", &["api"]),
+            org("a", &["chat"]),
+            org("b", &["chat"]),
+        ];
         assert_eq!(choose_org(&orgs, None, Some("zzz")).unwrap().uuid, "a");
     }
 

@@ -18,7 +18,10 @@ pub struct Window {
 
 impl Window {
     pub fn idle() -> Self {
-        Self { used: 0.0, resets_at: None }
+        Self {
+            used: 0.0,
+            resets_at: None,
+        }
     }
 }
 

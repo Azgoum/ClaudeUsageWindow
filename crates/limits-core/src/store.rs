@@ -20,7 +20,7 @@ impl Default for Settings {
             language: None,
             org_uuid: None,
             always_on_top: true,
-            start_with_windows: true,
+            start_with_windows: false,
         }
     }
 }
@@ -34,7 +34,10 @@ pub struct SettingsStore {
 
 impl SettingsStore {
     pub fn new(path: PathBuf) -> Self {
-        Self { path, lock: Arc::default() }
+        Self {
+            path,
+            lock: Arc::default(),
+        }
     }
 
     fn guard(&self) -> std::sync::MutexGuard<'_, ()> {
@@ -166,7 +169,11 @@ fn parse_head(head: String) -> Head {
     let Some(rest) = head.strip_prefix(CHUNKED) else {
         return Head::Plain(head);
     };
-    let count = |n: &str| n.parse::<usize>().ok().filter(|n| (1..=MAX_CHUNKS).contains(n));
+    let count = |n: &str| {
+        n.parse::<usize>()
+            .ok()
+            .filter(|n| (1..=MAX_CHUNKS).contains(n))
+    };
     let parsed = match rest.split_once(':') {
         None => count(rest).map(Head::Legacy),
         Some((g, n)) => match (g.parse::<u8>().ok().filter(|g| GENS.contains(g)), count(n)) {
@@ -194,7 +201,10 @@ impl Default for KeyringCreds {
 
 impl<B: Blobs> ChunkedCreds<B> {
     pub fn with_blobs(blobs: B, user: &str) -> Self {
-        Self { blobs, user: user.to_string() }
+        Self {
+            blobs,
+            user: user.to_string(),
+        }
     }
 
     fn chunk_name(&self, gen: Option<u8>, i: usize) -> String {
@@ -282,19 +292,27 @@ impl<B: Blobs> CredStore for ChunkedCreds<B> {
             }
             return Ok(());
         }
-        let chunks: Vec<String> = chars.chunks(CHUNK_CHARS).map(|c| c.iter().collect()).collect();
+        let chunks: Vec<String> = chars
+            .chunks(CHUNK_CHARS)
+            .map(|c| c.iter().collect())
+            .collect();
         anyhow::ensure!(chunks.len() <= MAX_CHUNKS, "credentials too large to store");
         // The generation not in use, so the current one stays intact until the head flips.
         let current = match self.head() {
             Ok(Some(Head::Gen(g, _))) => Some(g),
             _ => None,
         };
-        let gen = if current == Some(GENS[0]) { GENS[1] } else { GENS[0] };
+        let gen = if current == Some(GENS[0]) {
+            GENS[1]
+        } else {
+            GENS[0]
+        };
         let write = || -> anyhow::Result<()> {
             for (i, chunk) in chunks.iter().enumerate() {
                 self.blobs.set(&self.chunk_name(Some(gen), i), chunk)?;
             }
-            self.blobs.set(&self.user, &format!("{CHUNKED}{gen}:{}", chunks.len()))
+            self.blobs
+                .set(&self.user, &format!("{CHUNKED}{gen}:{}", chunks.len()))
         };
         if let Err(e) = write() {
             // Drop the partial new generation; the head still points at the previous one.
@@ -338,7 +356,9 @@ mod tests {
     use super::*;
 
     fn cookies() -> SessionCookies {
-        SessionCookies { cookies: vec![("sessionKey".into(), "sk-secret".into())] }
+        SessionCookies {
+            cookies: vec![("sessionKey".into(), "sk-secret".into())],
+        }
     }
 
     #[test]
@@ -347,7 +367,7 @@ mod tests {
         let store = SettingsStore::new(dir.path().join("settings.json"));
         let s = store.load();
         assert_eq!(s, Settings::default());
-        assert!(s.always_on_top && s.start_with_windows);
+        assert!(s.always_on_top && !s.start_with_windows);
         assert_eq!(s.position, None);
     }
 
@@ -407,14 +427,22 @@ mod tests {
     }
 
     #[test]
-    fn settings_partial_file_keeps_true_defaults() {
+    fn settings_partial_file_keeps_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         std::fs::write(&path, r#"{"language":"en"}"#).unwrap();
         let s = SettingsStore::new(path).load();
         assert_eq!(s.language.as_deref(), Some("en"));
         assert!(s.always_on_top);
-        assert!(s.start_with_windows);
+        assert!(!s.start_with_windows);
+    }
+
+    #[test]
+    fn existing_file_keeps_start_with_windows_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"start_with_windows":true}"#).unwrap();
+        assert!(SettingsStore::new(path).load().start_with_windows);
     }
 
     #[test]
@@ -460,7 +488,10 @@ mod tests {
             if *self.fail_set_at.lock().unwrap() == Some(*n) {
                 anyhow::bail!("simulated write failure");
             }
-            assert!(value.encode_utf16().count() <= 1280, "blob over the Credential Manager limit");
+            assert!(
+                value.encode_utf16().count() <= 1280,
+                "blob over the Credential Manager limit"
+            );
             self.map.lock().unwrap().insert(name.into(), value.into());
             Ok(())
         }
@@ -493,7 +524,10 @@ mod tests {
     fn chunked_legacy_plain_head_reads_back() {
         let m = MemBlobs::default();
         m.put("session", &serde_json::to_string(&cookies()).unwrap());
-        assert_eq!(ChunkedCreds::with_blobs(&m, "session").load(), Some(cookies()));
+        assert_eq!(
+            ChunkedCreds::with_blobs(&m, "session").load(),
+            Some(cookies())
+        );
     }
 
     #[test]
@@ -510,7 +544,12 @@ mod tests {
         k.save(&big('b')).unwrap();
         assert_eq!(k.load(), Some(big('b')));
         let names = m.names();
-        assert!(names.iter().all(|n| n == "session" || n.starts_with("session.1.")), "{names:?}");
+        assert!(
+            names
+                .iter()
+                .all(|n| n == "session" || n.starts_with("session.1.")),
+            "{names:?}"
+        );
     }
 
     #[test]
@@ -523,7 +562,12 @@ mod tests {
         assert!(first.len() > 2, "a large set is chunked: {first:?}");
         k.save(&big('b')).unwrap();
         assert_eq!(k.load(), Some(big('b')));
-        assert_eq!(m.names().len(), first.len(), "previous generation deleted: {:?}", m.names());
+        assert_eq!(
+            m.names().len(),
+            first.len(),
+            "previous generation deleted: {:?}",
+            m.names()
+        );
         k.save(&cookies()).unwrap();
         assert_eq!(k.load(), Some(cookies()));
         assert_eq!(m.names(), vec!["session"]);
@@ -575,7 +619,14 @@ mod tests {
 
     #[test]
     fn chunked_corrupt_head_is_none_and_clear_is_bounded() {
-        let heads = ["chunked:999999", "chunked:4000000000", "chunked:1:999999", "chunked:9:2", "chunked:x", "{not json"];
+        let heads = [
+            "chunked:999999",
+            "chunked:4000000000",
+            "chunked:1:999999",
+            "chunked:9:2",
+            "chunked:x",
+            "{not json",
+        ];
         for head in heads {
             let m = MemBlobs::default();
             m.put("session", head);
